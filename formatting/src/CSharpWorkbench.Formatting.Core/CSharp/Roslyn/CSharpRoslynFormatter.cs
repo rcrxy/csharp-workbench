@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.CodeAnalysis.Text;
 using CSharpWorkbench.Formatting.Core.CSharp.Options;
@@ -8,14 +9,9 @@ using CSharpWorkbench.Formatting.Core.Errors;
 
 namespace CSharpWorkbench.Formatting.Core.CSharp.Roslyn;
 
-public sealed class CSharpRoslynFormatter
+public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormattingRule>? workbenchRules = null)
 {
-    private readonly IReadOnlyList<ICSharpWorkbenchFormattingRule> _workbenchRules;
-
-    public CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormattingRule>? workbenchRules = null)
-    {
-        _workbenchRules = workbenchRules?.ToArray() ?? Array.Empty<ICSharpWorkbenchFormattingRule>();
-    }
+    private readonly IReadOnlyList<ICSharpWorkbenchFormattingRule> _workbenchRules = workbenchRules?.ToArray() ?? [];
 
     public async Task<CSharpFormattingResult> FormatAsync(
         CSharpFormattingRequest request,
@@ -86,6 +82,7 @@ public sealed class CSharpRoslynFormatter
         var formattedDocument = request.Kind == CSharpFormattingKind.Range
         ? await Formatter.FormatAsync(ruleDocument, formattingSpan, optionSet, cancellationToken).ConfigureAwait(false)
         : await Formatter.FormatAsync(ruleDocument, optionSet, cancellationToken).ConfigureAwait(false);
+        formattedDocument = ApplyIndependentOpenBraceCorrection(formattedDocument, request.Options, cancellationToken);
         var formattedText = await formattedDocument.GetTextAsync(cancellationToken).ConfigureAwait(false);
 
         return request.Kind switch
@@ -211,5 +208,87 @@ public sealed class CSharpRoslynFormatter
     private static TextSpan ToRoslynSpan(CSharpTextSpan span)
     {
         return new TextSpan(span.Start, span.Length);
+    }
+
+    private static Document ApplyIndependentOpenBraceCorrection(
+        Document document,
+        CSharpFormattingOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (options.CSharpNewLines.BeforeOpenBrace != CSharpOpenBraceMode.Selected)
+        {
+            return document;
+        }
+
+        var selected = options.CSharpNewLines.OpenBraceContexts;
+        var needsLocalFunctionBrace = selected.Contains(CSharpOpenBraceContext.LocalFunctions);
+        var needsEventBrace = selected.Contains(CSharpOpenBraceContext.Events);
+        var needsIndexerBrace = selected.Contains(CSharpOpenBraceContext.Indexers);
+        if (!needsLocalFunctionBrace && !needsEventBrace && !needsIndexerBrace)
+        {
+            return document;
+        }
+
+        var root = document.GetSyntaxRootAsync(cancellationToken).GetAwaiter().GetResult()
+            ?? throw new FormattingException(
+                FormattingErrorCode.FormattingFailure,
+                "Roslyn returned no syntax root for the formatted document.");
+        var source = root.ToFullString();
+        var tokens = new List<SyntaxToken>();
+        foreach (var node in root.DescendantNodes())
+        {
+            var brace = node switch
+            {
+                LocalFunctionStatementSyntax localFunction when needsLocalFunctionBrace =>
+                    localFunction.Body?.OpenBraceToken,
+                EventDeclarationSyntax eventDeclaration when needsEventBrace =>
+                    eventDeclaration.AccessorList?.OpenBraceToken,
+                IndexerDeclarationSyntax indexer when needsIndexerBrace =>
+                    indexer.AccessorList?.OpenBraceToken,
+                _ => null,
+            };
+
+            if (brace is SyntaxToken token && token.RawKind != 0 &&
+                !token.LeadingTrivia.Any(trivia => trivia.IsKind(SyntaxKind.EndOfLineTrivia)))
+            {
+                tokens.Add(token);
+            }
+        }
+
+        if (tokens.Count == 0)
+        {
+            return document;
+        }
+
+        var correctedRoot = root.ReplaceTokens(tokens, (original, _) =>
+            AddLineBreakBeforeBrace(original, source, options.LineEnding));
+        return document.WithSyntaxRoot(correctedRoot);
+    }
+
+    private static SyntaxToken AddLineBreakBeforeBrace(
+        SyntaxToken token,
+        string source,
+        string lineEnding)
+    {
+        var lineStart = source.LastIndexOf('\n', Math.Max(0, token.SpanStart - 1));
+        lineStart = lineStart < 0 ? 0 : lineStart + 1;
+        var indentationLength = 0;
+        while (lineStart + indentationLength < source.Length &&
+            (source[lineStart + indentationLength] == ' ' || source[lineStart + indentationLength] == '\t'))
+        {
+            indentationLength++;
+        }
+
+        var indentation = source.Substring(lineStart, indentationLength);
+        var leadingTrivia = token.LeadingTrivia;
+        while (leadingTrivia.Count > 0 && leadingTrivia[leadingTrivia.Count - 1].IsKind(SyntaxKind.WhitespaceTrivia))
+        {
+            leadingTrivia = leadingTrivia.RemoveAt(leadingTrivia.Count - 1);
+        }
+
+        leadingTrivia = leadingTrivia
+            .Add(SyntaxFactory.EndOfLine(lineEnding))
+            .Add(SyntaxFactory.Whitespace(indentation));
+        return token.WithLeadingTrivia(leadingTrivia);
     }
 }

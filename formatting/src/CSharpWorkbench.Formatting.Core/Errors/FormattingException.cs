@@ -24,6 +24,5 @@ public sealed class FormattingException : Exception
         Code = code;
     }
 
-    public FormattingErrorCode Code
-    { get; }
+    public FormattingErrorCode Code { get; }
 }

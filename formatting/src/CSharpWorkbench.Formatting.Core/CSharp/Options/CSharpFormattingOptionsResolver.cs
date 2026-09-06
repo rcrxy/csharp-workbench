@@ -9,9 +9,7 @@ public static class CSharpFormattingOptionsResolver
         EditorFallback? fallback = null)
     {
         if (properties is null)
-        {
             throw new ArgumentNullException(nameof(properties));
-        }
 
         fallback ??= new EditorFallback();
 
@@ -268,10 +266,7 @@ public static class CSharpFormattingOptionsResolver
         };
     }
 
-    private static bool ResolveBoolean(
-        IReadOnlyDictionary<string, string> properties,
-        string key,
-        bool defaultValue)
+    private static bool ResolveBoolean(IReadOnlyDictionary<string, string> properties, string key, bool defaultValue)
     {
         return ParseBoolean(Get(properties, key)) ?? defaultValue;
     }

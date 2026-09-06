@@ -13,64 +13,41 @@ public readonly struct FormattingTextSpan
         Length = length;
     }
 
-    public int Start
-    { get; }
-
-    public int Length
-    { get; }
+    public int Start { get; }
+    public int Length { get; }
 }
 
-public sealed class FormattingTextChange
+public sealed class FormattingTextChange(FormattingTextSpan span, string newText)
 {
-    public FormattingTextChange(FormattingTextSpan span, string newText)
-    {
-        Span = span;
-        NewText = newText ?? throw new ArgumentNullException(nameof(newText));
-    }
+    public FormattingTextSpan Span { get; } = span;
 
-    public FormattingTextSpan Span
-    { get; }
-
-    public string NewText
-    { get; }
+    public string NewText { get; } = newText
+        ?? throw new ArgumentNullException(nameof(newText));
 }
 
-public sealed class FormattingResult
+public sealed class FormattingResult(IReadOnlyList<FormattingTextChange> changes)
 {
-    public static FormattingResult Unchanged
-    { get; } = new(Array.Empty<FormattingTextChange>());
+    public static FormattingResult Unchanged { get; } = new([]);
 
-    public FormattingResult(IReadOnlyList<FormattingTextChange> changes)
-    {
-        Changes = changes ?? throw new ArgumentNullException(nameof(changes));
-    }
-
-    public IReadOnlyList<FormattingTextChange> Changes
-    { get; }
+    public IReadOnlyList<FormattingTextChange> Changes { get; } = changes
+        ?? throw new ArgumentNullException(nameof(changes));
 }
 
 public sealed class EditorFallback
 {
-    public bool? InsertSpaces
-    { get; set; }
+    public bool? InsertSpaces { get; set; }
 
-    public int? TabSize
-    { get; set; }
+    public int? TabSize { get; set; }
 
-    public int? MaxLineLength
-    { get; set; }
+    public int? MaxLineLength { get; set; }
 
-    public string? LineEnding
-    { get; set; }
+    public string? LineEnding { get; set; }
 
-    public bool? InsertFinalNewline
-    { get; set; }
+    public bool? InsertFinalNewline { get; set; }
 
-    public bool? TrimTrailingWhitespace
-    { get; set; }
+    public bool? TrimTrailingWhitespace { get; set; }
 
-    public string? Charset
-    { get; set; }
+    public string? Charset { get; set; }
 }
 
 public sealed class FormattingRequest
@@ -87,15 +64,10 @@ public sealed class FormattingRequest
         EditorFallback = editorFallback ?? new EditorFallback();
     }
 
-    public FormattingLanguage Language
-    { get; }
+    public FormattingLanguage Language { get; }
 
-    public string Source
-    { get; }
+    public string Source { get; }
 
-    public IReadOnlyDictionary<string, string> ResolvedEditorConfig
-    { get; }
-
-    public EditorFallback EditorFallback
-    { get; }
+    public IReadOnlyDictionary<string, string> ResolvedEditorConfig { get; }
+    public EditorFallback EditorFallback { get; }
 }

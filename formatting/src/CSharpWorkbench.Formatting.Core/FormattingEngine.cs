@@ -9,10 +9,7 @@ public sealed class FormattingEngine
 {
     private readonly CSharpRoslynFormatter _csharpFormatter;
 
-    public FormattingEngine()
-    : this(new CSharpRoslynFormatter())
-    {
-    }
+    public FormattingEngine() : this(new CSharpRoslynFormatter()) { }
 
     internal FormattingEngine(CSharpRoslynFormatter csharpFormatter)
     {
@@ -24,9 +21,7 @@ public sealed class FormattingEngine
         CancellationToken cancellationToken = default)
     {
         if (request is null)
-        {
             throw new ArgumentNullException(nameof(request));
-        }
 
         cancellationToken.ThrowIfCancellationRequested();
 

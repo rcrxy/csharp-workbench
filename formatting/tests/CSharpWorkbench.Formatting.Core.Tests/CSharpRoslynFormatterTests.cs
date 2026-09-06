@@ -348,7 +348,7 @@ public sealed class CSharpRoslynFormatterTests
         Assert.True(info.Capabilities.FormatRange);
         Assert.True(info.Capabilities.FormatSnippet);
         Assert.False(info.Capabilities.SupportsMaxLineLength);
-        Assert.False(info.Capabilities.SupportsIndependentEventIndexerAndLocalFunctionBraceContexts);
+        Assert.True(info.Capabilities.SupportsIndependentEventIndexerAndLocalFunctionBraceContexts);
         Assert.True(info.Capabilities.PreservesSourceOnFailure);
     }
 

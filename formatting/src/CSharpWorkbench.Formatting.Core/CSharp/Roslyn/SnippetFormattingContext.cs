@@ -23,20 +23,15 @@ internal sealed class SnippetFormattingContext
         WrapperDepth = wrapperDepth;
     }
 
-    public string ParserSource
-    { get; }
+    public string ParserSource { get; }
 
-    public TextSpan FormattingSpan
-    { get; }
+    public TextSpan FormattingSpan { get; }
 
-    private string StartMarker
-    { get; }
+    private string StartMarker { get; }
 
-    private string EndMarker
-    { get; }
+    private string EndMarker { get; }
 
-    private int WrapperDepth
-    { get; }
+    private int WrapperDepth { get; }
 
     public static SnippetFormattingContext Create(CSharpFormattingRequest request)
     {

@@ -48,17 +48,13 @@ internal static class RoslynFormattingOptionsMapper
             UsesOpenBraceContext(openBraces, CSharpOpenBraceContext.Lambdas))
         .WithChangedOption(
             RoslynCSharpFormattingOptions.NewLinesForBracesInMethods,
-            UsesAnyOpenBraceContext(openBraces, CSharpOpenBraceContext.Methods, CSharpOpenBraceContext.LocalFunctions))
+            UsesOpenBraceContext(openBraces, CSharpOpenBraceContext.Methods))
         .WithChangedOption(
             RoslynCSharpFormattingOptions.NewLinesForBracesInObjectCollectionArrayInitializers,
             UsesOpenBraceContext(openBraces, CSharpOpenBraceContext.ObjectCollectionArrayInitializers))
         .WithChangedOption(
             RoslynCSharpFormattingOptions.NewLinesForBracesInProperties,
-            UsesAnyOpenBraceContext(
-                openBraces,
-                CSharpOpenBraceContext.Properties,
-                CSharpOpenBraceContext.Events,
-                CSharpOpenBraceContext.Indexers))
+            UsesOpenBraceContext(openBraces, CSharpOpenBraceContext.Properties))
         .WithChangedOption(
             RoslynCSharpFormattingOptions.NewLinesForBracesInTypes,
             UsesOpenBraceContext(openBraces, CSharpOpenBraceContext.Types))

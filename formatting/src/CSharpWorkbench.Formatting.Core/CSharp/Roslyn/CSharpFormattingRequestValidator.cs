@@ -8,9 +8,7 @@ internal static class CSharpFormattingRequestValidator
     public static void Validate(CSharpFormattingRequest request)
     {
         if (request is null)
-        {
             throw new ArgumentNullException(nameof(request));
-        }
 
         ValidateRequestShape(request);
         ValidateOptions(request.Options);
@@ -22,31 +20,23 @@ internal static class CSharpFormattingRequestValidator
         {
             case CSharpFormattingKind.Document:
                 if (request.Span is not null || request.SnippetKind is not null)
-                {
                     throw InvalidRequest("Document formatting cannot specify a span or snippet kind.");
-                }
 
                 break;
 
             case CSharpFormattingKind.Range:
                 if (request.Span is null || request.SnippetKind is not null)
-                {
                     throw InvalidRequest("Range formatting requires a span and cannot specify a snippet kind.");
-                }
 
                 ValidateSpan(request.Source, request.Span.Value);
                 break;
 
             case CSharpFormattingKind.Snippet:
                 if (request.Span is not null || request.SnippetKind is null)
-                {
                     throw InvalidRequest("Snippet formatting requires a snippet kind and cannot specify a span.");
-                }
 
                 if (!Enum.IsDefined(typeof(CSharpSnippetKind), request.SnippetKind.Value))
-                {
                     throw InvalidRequest("Snippet formatting requires a supported snippet kind.");
-                }
 
                 break;
 
