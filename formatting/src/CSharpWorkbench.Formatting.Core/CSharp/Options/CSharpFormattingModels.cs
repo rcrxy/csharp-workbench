@@ -56,6 +56,12 @@ public enum CSharpBinaryOperatorSpacing
     Ignore,
 }
 
+public enum CSharpWrappedOperatorPlacement
+{
+    BeginningOfLine,
+    EndOfLine,
+}
+
 public enum CSharpParenthesisSpacingContext
 {
     ControlFlowStatements,
@@ -210,6 +216,18 @@ public sealed class CSharpSpacingOptions
 
     public bool AfterInheritanceColon { get; set; } = true;
 
+    public bool AfterDot { get; set; }
+
+    public bool BeforeDot { get; set; }
+
+    public bool BeforeOpenSquareBracket { get; set; }
+
+    public bool BetweenEmptySquareBrackets { get; set; }
+
+    public bool BetweenSquareBrackets { get; set; }
+
+    public bool IgnoreSpacesAroundVariableDeclaration { get; set; }
+
     public bool BetweenMethodCallNameAndOpeningParenthesis { get; set; }
 
     public bool BetweenMethodCallParameterListParentheses { get; set; }
@@ -228,4 +246,6 @@ public sealed class CSharpWrappingOptions
 {
     public bool PreserveSingleLineStatements { get; set; } = true;
     public bool PreserveSingleLineBlocks { get; set; } = true;
+
+    public CSharpWrappedOperatorPlacement OperatorPlacement { get; set; } = CSharpWrappedOperatorPlacement.BeginningOfLine;
 }

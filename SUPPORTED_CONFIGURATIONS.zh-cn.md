@@ -101,6 +101,12 @@ Razor 控制块同样应用这些换行规则。其左花括号使用 `csharp_ne
 | `csharp_space_after_cast`                                | `true`、`false`                      | `false`            |
 | `csharp_space_before_colon_in_inheritance_clause`        | `true`、`false`                      | `true`             |
 | `csharp_space_after_colon_in_inheritance_clause`         | `true`、`false`                      | `true`             |
+| `csharp_space_after_dot`                                 | `true`、`false`                      | `false`            |
+| `csharp_space_before_dot`                                | `true`、`false`                      | `false`            |
+| `csharp_space_before_open_square_brackets`               | `true`、`false`                      | `false`            |
+| `csharp_space_between_empty_square_brackets`             | `true`、`false`                      | `false`            |
+| `csharp_space_between_square_brackets`                   | `true`、`false`                      | `false`            |
+| `csharp_space_around_declaration_statements`             | `ignore`、`false`                   | `false`            |
 | `csharp_space_between_method_call_name_and_opening_parenthesis` | `true`、`false` | `false` |
 | `csharp_space_between_method_call_parameter_list_parentheses` | `true`、`false` | `false` |
 | `csharp_space_between_method_call_empty_parameter_list_parentheses` | `true`、`false` | `false` |
@@ -119,6 +125,7 @@ Razor 控制块同样应用这些换行规则。其左花括号使用 `csharp_ne
 | ---------------------------------------- | --------------- | ------ |
 | `csharp_preserve_single_line_statements` | `true`、`false` | `true` |
 | `csharp_preserve_single_line_blocks`     | `true`、`false` | `true` |
+| `dotnet_style_operator_placement_when_wrapping` | `beginning_of_line`、`end_of_line` | `beginning_of_line` |
 
 代码风格文本转换会保护注释、普通字符串、verbatim 字符串、raw string 和字符字面量。格式化器能识别上述构造，
 但并不是完整的 Roslyn 语法树实现。对于不支持或存在歧义的构造，会尽可能保持不变。

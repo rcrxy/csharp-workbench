@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.CodeAnalysis.Text;
 using CSharpWorkbench.Formatting.Core.CSharp.Options;
 using CSharpWorkbench.Formatting.Core.CSharp.Rules;
+using CSharpWorkbench.Formatting.Core.CSharp.Wrapping;
 using CSharpWorkbench.Formatting.Core.Errors;
 
 namespace CSharpWorkbench.Formatting.Core.CSharp.Roslyn;
@@ -84,6 +85,11 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
         : await Formatter.FormatAsync(ruleDocument, optionSet, cancellationToken).ConfigureAwait(false);
         formattedDocument = ApplyIndependentOpenBraceCorrection(formattedDocument, request.Options, cancellationToken);
         var formattedText = await formattedDocument.GetTextAsync(cancellationToken).ConfigureAwait(false);
+        if (request.Kind == CSharpFormattingKind.Document)
+        {
+            formattedText = SourceText.From(
+                CSharpSyntaxLineWrapper.Wrap(formattedText.ToString(), request.Options, cancellationToken));
+        }
 
         return request.Kind switch
         {

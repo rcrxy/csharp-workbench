@@ -106,6 +106,12 @@ query clauses. Nested initializers and nested query expressions are handled inde
 | `csharp_space_after_cast`                                | `true`, `false`                      | `false`            |
 | `csharp_space_before_colon_in_inheritance_clause`        | `true`, `false`                      | `true`             |
 | `csharp_space_after_colon_in_inheritance_clause`         | `true`, `false`                      | `true`             |
+| `csharp_space_after_dot`                                 | `true`, `false`                      | `false`            |
+| `csharp_space_before_dot`                                | `true`, `false`                      | `false`            |
+| `csharp_space_before_open_square_brackets`               | `true`, `false`                      | `false`            |
+| `csharp_space_between_empty_square_brackets`             | `true`, `false`                      | `false`            |
+| `csharp_space_between_square_brackets`                   | `true`, `false`                      | `false`            |
+| `csharp_space_around_declaration_statements`             | `ignore`, `false`                   | `false`            |
 | `csharp_space_between_method_call_name_and_opening_parenthesis` | `true`, `false` | `false` |
 | `csharp_space_between_method_call_parameter_list_parentheses` | `true`, `false` | `false` |
 | `csharp_space_between_method_call_empty_parameter_list_parentheses` | `true`, `false` | `false` |
@@ -126,6 +132,7 @@ unchanged by these rules.
 | ---------------------------------------- | ---------------- | ------- |
 | `csharp_preserve_single_line_statements` | `true`, `false`  | `true`  |
 | `csharp_preserve_single_line_blocks`     | `true`, `false`  | `true`  |
+| `dotnet_style_operator_placement_when_wrapping` | `beginning_of_line`, `end_of_line` | `beginning_of_line` |
 
 Comments, regular strings, verbatim strings, raw strings, and character literals are protected from code-style text
 transformations. The formatter is syntax-aware for the constructs listed above, but it is not a complete Roslyn syntax

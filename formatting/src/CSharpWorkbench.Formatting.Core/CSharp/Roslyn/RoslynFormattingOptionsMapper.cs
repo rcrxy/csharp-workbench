@@ -87,6 +87,20 @@ internal static class RoslynFormattingOptionsMapper
         .WithChangedOption(
             RoslynCSharpFormattingOptions.SpaceAfterColonInBaseTypeDeclaration,
             spacing.AfterInheritanceColon)
+        .WithChangedOption(RoslynCSharpFormattingOptions.SpaceAfterDot, spacing.AfterDot)
+        .WithChangedOption(RoslynCSharpFormattingOptions.SpaceBeforeDot, spacing.BeforeDot)
+        .WithChangedOption(
+            RoslynCSharpFormattingOptions.SpaceBeforeOpenSquareBracket,
+            spacing.BeforeOpenSquareBracket)
+        .WithChangedOption(
+            RoslynCSharpFormattingOptions.SpaceBetweenEmptySquareBrackets,
+            spacing.BetweenEmptySquareBrackets)
+        .WithChangedOption(
+            RoslynCSharpFormattingOptions.SpaceWithinSquareBrackets,
+            spacing.BetweenSquareBrackets)
+        .WithChangedOption(
+            RoslynCSharpFormattingOptions.SpacesIgnoreAroundVariableDeclaration,
+            spacing.IgnoreSpacesAroundVariableDeclaration)
         .WithChangedOption(
             RoslynCSharpFormattingOptions.SpaceAfterMethodCallName,
             spacing.BetweenMethodCallNameAndOpeningParenthesis)

@@ -174,6 +174,75 @@ public sealed class LegacyCSharpFormattingParityTests
         Assert.Contains("this[int index] {", formatted, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("true", "obj . Member . Call()", "int [ ] values = new int [ ]")]
+    [InlineData("false", "obj.Member.Call()", "int[] values = new int[]")]
+    public async Task MapsDotAndSquareBracketSpacing(string enabled, string expectedMemberAccess, string expectedArrays)
+    {
+        var formatted = await FormatAsync(
+            "class Demo{void Run(){var value=obj.Member.Call();int[] values=new int[]{1,2};var item=values[0];}}",
+            new Dictionary<string, string>
+            {
+                ["csharp_space_after_dot"] = enabled,
+                ["csharp_space_before_dot"] = enabled,
+                ["csharp_space_before_open_square_brackets"] = enabled,
+                ["csharp_space_between_empty_square_brackets"] = enabled,
+                ["csharp_space_between_square_brackets"] = enabled,
+            });
+
+        Assert.True(formatted.Contains(expectedMemberAccess, StringComparison.Ordinal), formatted);
+        Assert.True(formatted.Contains(expectedArrays, StringComparison.Ordinal), formatted);
+    }
+
+    [Theory]
+    [InlineData("ignore", "int    value    =    0")]
+    [InlineData("false", "int value = 0")]
+    [InlineData("invalid", "int value = 0")]
+    public async Task MapsDeclarationSpacingSemantics(string value, string expected)
+    {
+        var formatted = await FormatAsync(
+            "class Demo{void Run(){int    value    =    0;}}",
+            new Dictionary<string, string>
+            {
+                ["csharp_space_around_declaration_statements"] = value,
+            });
+
+        Assert.Contains(expected, formatted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MapsInitializerQueryAndParenthesisRules()
+    {
+        var separate = await FormatAsync(
+            "class Demo{void Run(){var item=new Item{First=1,Second=2};var anonymous=new{First=1,Second=2};var query=from item in items where item.Active select item;Use((value));}}",
+            new Dictionary<string, string>
+            {
+                ["csharp_new_line_before_members_in_object_initializers"] = "true",
+                ["csharp_new_line_before_members_in_anonymous_types"] = "true",
+                ["csharp_new_line_between_query_expression_clauses"] = "true",
+                ["csharp_space_between_parentheses"] = "expressions",
+                ["csharp_preserve_single_line_statements"] = "false",
+                ["csharp_preserve_single_line_blocks"] = "false",
+            });
+        var joined = await FormatAsync(
+            separate,
+            new Dictionary<string, string>
+            {
+                ["csharp_new_line_before_members_in_object_initializers"] = "false",
+                ["csharp_new_line_before_members_in_anonymous_types"] = "false",
+                ["csharp_new_line_between_query_expression_clauses"] = "false",
+                ["csharp_space_between_parentheses"] = "false",
+                ["csharp_preserve_single_line_statements"] = "false",
+                ["csharp_preserve_single_line_blocks"] = "false",
+            });
+
+        Assert.Contains("First = 1,\n", separate, StringComparison.Ordinal);
+        Assert.True(separate.Contains("where item.Active", StringComparison.Ordinal), separate);
+        Assert.Contains("( value )", separate, StringComparison.Ordinal);
+        Assert.Contains("First = 1, Second = 2", joined, StringComparison.Ordinal);
+        Assert.DoesNotContain("( value )", joined, StringComparison.Ordinal);
+    }
+
     private static async Task<string> FormatAsync(
         string source,
         IReadOnlyDictionary<string, string> properties)

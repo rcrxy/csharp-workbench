@@ -68,6 +68,8 @@ public static class CSharpFormattingOptionsResolver
             properties,
             "csharp_preserve_single_line_blocks",
             options.CSharpWrapping.PreserveSingleLineBlocks);
+        options.CSharpWrapping.OperatorPlacement = ResolveOperatorPlacement(
+            Get(properties, "dotnet_style_operator_placement_when_wrapping"));
 
         return options;
     }
@@ -136,6 +138,23 @@ public static class CSharpFormattingOptionsResolver
             properties,
             "csharp_space_after_colon_in_inheritance_clause",
             options.AfterInheritanceColon);
+        options.AfterDot = ResolveBoolean(properties, "csharp_space_after_dot", options.AfterDot);
+        options.BeforeDot = ResolveBoolean(properties, "csharp_space_before_dot", options.BeforeDot);
+        options.BeforeOpenSquareBracket = ResolveBoolean(
+            properties,
+            "csharp_space_before_open_square_brackets",
+            options.BeforeOpenSquareBracket);
+        options.BetweenEmptySquareBrackets = ResolveBoolean(
+            properties,
+            "csharp_space_between_empty_square_brackets",
+            options.BetweenEmptySquareBrackets);
+        options.BetweenSquareBrackets = ResolveBoolean(
+            properties,
+            "csharp_space_between_square_brackets",
+            options.BetweenSquareBrackets);
+        options.IgnoreSpacesAroundVariableDeclaration = Is(
+            Get(properties, "csharp_space_around_declaration_statements"),
+            "ignore");
         options.BetweenMethodCallNameAndOpeningParenthesis = ResolveBoolean(
             properties,
             "csharp_space_between_method_call_name_and_opening_parenthesis",
@@ -236,6 +255,13 @@ public static class CSharpFormattingOptionsResolver
             "ignore" => CSharpBinaryOperatorSpacing.Ignore,
             _ => CSharpBinaryOperatorSpacing.BeforeAndAfter,
         };
+    }
+
+    private static CSharpWrappedOperatorPlacement ResolveOperatorPlacement(string? value)
+    {
+        return Is(value, "end_of_line")
+            ? CSharpWrappedOperatorPlacement.EndOfLine
+            : CSharpWrappedOperatorPlacement.BeginningOfLine;
     }
 
     private static int? ResolveMaxLineLength(string? value, int? fallback)

@@ -16,7 +16,7 @@ public sealed class FormattingCoreCapabilities
 
     public IReadOnlyList<CSharpSnippetKind> SnippetKinds { get; } = [CSharpSnippetKind.TypeMembers, CSharpSnippetKind.Statements];
 
-    public bool SupportsMaxLineLength => false;
+    public bool SupportsMaxLineLength => true;
 
     public bool SupportsEncodingConversion => false;
 
