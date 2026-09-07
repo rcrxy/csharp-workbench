@@ -3,6 +3,8 @@ namespace CSharpWorkbench.Formatting.Core.Contracts;
 public enum FormattingLanguage
 {
     CSharp,
+    Razor,
+    Cshtml,
 }
 
 public readonly struct FormattingTextSpan

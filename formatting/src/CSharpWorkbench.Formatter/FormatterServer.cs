@@ -110,7 +110,7 @@ internal sealed class FormatterServer
                 Capabilities = new FormatterCapabilities
                 {
                     FormatDocument = true,
-                    Languages = new[] { "csharp" },
+                    Languages = new[] { "csharp", "razor", "cshtml" },
                 },
             },
         }).ConfigureAwait(false);
@@ -248,9 +248,14 @@ internal sealed class FormatterServer
 
     private static FormattingLanguage MapLanguage(string language)
     {
-        if (string.Equals(language, "csharp", StringComparison.Ordinal))
+        switch (language)
         {
-            return FormattingLanguage.CSharp;
+            case "csharp":
+                return FormattingLanguage.CSharp;
+            case "razor":
+                return FormattingLanguage.Razor;
+            case "cshtml":
+                return FormattingLanguage.Cshtml;
         }
 
         throw new FormattingException(

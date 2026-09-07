@@ -30,7 +30,7 @@ public sealed class FormatterProcessTests
         Assert.False(string.IsNullOrWhiteSpace(result.GetProperty("formatterVersion").GetString()));
         var capabilities = result.GetProperty("capabilities");
         Assert.True(capabilities.GetProperty("formatDocument").GetBoolean());
-        Assert.Equal(new[] { "csharp" }, capabilities.GetProperty("languages")
+        Assert.Equal(new[] { "csharp", "razor", "cshtml" }, capabilities.GetProperty("languages")
             .EnumerateArray().Select(value => value.GetString()).ToArray());
         Assert.False(capabilities.TryGetProperty("formatRange", out _));
         Assert.False(capabilities.TryGetProperty("formatSnippet", out _));
@@ -98,6 +98,30 @@ public sealed class FormatterProcessTests
 
         Assert.Contains("class Demo {", changes.Single().NewText, StringComparison.Ordinal);
         Assert.Contains("Run(int left,int right)", changes.Single().NewText, StringComparison.Ordinal);
+        await formatter.ShutdownAsync(3);
+    }
+
+    [Fact]
+    public async Task FormatDocumentSupportsRazorThroughTheRealProcess()
+    {
+        const string source = "<div><span>Value</span><MyComponent /></div>";
+        await using var formatter = FormatterProcess.Start();
+        await formatter.HandshakeAsync();
+
+        await formatter.SendAsync(new
+        {
+            id = 2,
+            method = "formatDocument",
+            @params = CreateFormatParams("razor", source),
+        });
+        using var response = await formatter.ReadAsync();
+        var change = Assert.Single(response.RootElement.GetProperty("result").GetProperty("changes").EnumerateArray());
+
+        Assert.Equal(0, change.GetProperty("span").GetProperty("start").GetInt32());
+        Assert.Equal(source.Length, change.GetProperty("span").GetProperty("length").GetInt32());
+        Assert.Equal(
+            "<div>\n    <span>Value</span>\n    <MyComponent />\n</div>",
+            change.GetProperty("newText").GetString());
         await formatter.ShutdownAsync(3);
     }
 
