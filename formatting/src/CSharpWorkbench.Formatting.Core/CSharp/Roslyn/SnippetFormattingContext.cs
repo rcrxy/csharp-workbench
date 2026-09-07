@@ -14,13 +14,15 @@ internal sealed class SnippetFormattingContext
         TextSpan formattingSpan,
         string startMarker,
         string endMarker,
-        int wrapperDepth)
+        int wrapperDepth,
+        bool isInline)
     {
         ParserSource = parserSource;
         FormattingSpan = formattingSpan;
         StartMarker = startMarker;
         EndMarker = endMarker;
         WrapperDepth = wrapperDepth;
+        IsInline = isInline;
     }
 
     public string ParserSource { get; }
@@ -32,6 +34,8 @@ internal sealed class SnippetFormattingContext
     private string EndMarker { get; }
 
     private int WrapperDepth { get; }
+
+    private bool IsInline { get; }
 
     public static SnippetFormattingContext Create(CSharpFormattingRequest request)
     {
@@ -48,14 +52,37 @@ internal sealed class SnippetFormattingContext
             request.Source.Contains(endMarker, StringComparison.Ordinal));
 
         var lineEnding = request.Options.LineEnding;
-        var wrapperDepth = request.SnippetKind == CSharpSnippetKind.TypeMembers ? 1 : 2;
-        var prefix = request.SnippetKind == CSharpSnippetKind.TypeMembers
-        ? $"internal sealed class __CSharpWorkbenchSnippet{lineEnding}{{{lineEnding}{startMarker}{lineEnding}"
-        : $"internal sealed class __CSharpWorkbenchSnippet{lineEnding}{{{lineEnding}" +
-        $"void __CSharpWorkbenchMethod(){lineEnding}{{{lineEnding}{startMarker}{lineEnding}";
-        var suffix = request.SnippetKind == CSharpSnippetKind.TypeMembers
-        ? $"{lineEnding}{endMarker}{lineEnding}}}{lineEnding}"
-        : $"{lineEnding}{endMarker}{lineEnding}}}{lineEnding}}}{lineEnding}";
+        var wrapperDepth = request.SnippetKind switch
+        {
+            CSharpSnippetKind.TypeMembers => 1,
+            CSharpSnippetKind.Statements => 2,
+            CSharpSnippetKind.Expression => 0,
+            _ => throw new FormattingException(
+                FormattingErrorCode.InvalidRequest,
+                $"Unsupported C# snippet kind: {request.SnippetKind}."),
+        };
+        var isInline = request.SnippetKind == CSharpSnippetKind.Expression;
+        var prefix = request.SnippetKind switch
+        {
+            CSharpSnippetKind.TypeMembers =>
+                $"internal sealed class __CSharpWorkbenchSnippet{lineEnding}{{{lineEnding}{startMarker}{lineEnding}",
+            CSharpSnippetKind.Statements =>
+                $"internal sealed class __CSharpWorkbenchSnippet{lineEnding}{{{lineEnding}" +
+                $"void __CSharpWorkbenchMethod(){lineEnding}{{{lineEnding}{startMarker}{lineEnding}",
+            CSharpSnippetKind.Expression =>
+                $"internal sealed class __CSharpWorkbenchSnippet{lineEnding}{{{lineEnding}" +
+                $"object? __Value = {startMarker}",
+            _ => throw new FormattingException(
+                FormattingErrorCode.InvalidRequest,
+                $"Unsupported C# snippet kind: {request.SnippetKind}."),
+        };
+        var suffix = request.SnippetKind switch
+        {
+            CSharpSnippetKind.TypeMembers => $"{lineEnding}{endMarker}{lineEnding}}}{lineEnding}",
+            CSharpSnippetKind.Statements => $"{lineEnding}{endMarker}{lineEnding}}}{lineEnding}}}{lineEnding}",
+            CSharpSnippetKind.Expression => $"{endMarker};{lineEnding}}}{lineEnding}",
+            _ => string.Empty,
+        };
         var parserSource = prefix + request.Source + suffix;
 
         return new SnippetFormattingContext(
@@ -63,7 +90,8 @@ internal sealed class SnippetFormattingContext
             new TextSpan(prefix.Length, request.Source.Length),
             startMarker,
             endMarker,
-            wrapperDepth);
+            wrapperDepth,
+            isInline);
     }
 
     public string Extract(string formattedParserSource, IndentationOptions indentation)
@@ -79,6 +107,10 @@ internal sealed class SnippetFormattingContext
 
         var bodyStart = startMarkerIndex + StartMarker.Length;
         var body = formattedParserSource.Substring(bodyStart, endMarkerIndex - bodyStart);
+        if (IsInline)
+        {
+            return body;
+        }
         body = RemoveLeadingSeparatorLineEnding(body);
         body = RemoveTrailingSeparatorLineEnding(body);
 

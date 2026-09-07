@@ -8,6 +8,18 @@ namespace CSharpWorkbench.Formatting.Core.CSharp.Wrapping;
 
 internal static class CSharpSyntaxLineWrapper
 {
+    public static string WrapSnippet(
+        string source,
+        CSharpSnippetKind snippetKind,
+        CSharpFormattingOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (snippetKind == CSharpSnippetKind.Expression || options.MaxLineLength is null)
+            return source;
+
+        return Wrap(source, options, cancellationToken);
+    }
+
     public static string Wrap(
         string source,
         CSharpFormattingOptions options,

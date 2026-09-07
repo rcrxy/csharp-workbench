@@ -11,6 +11,7 @@ public enum CSharpSnippetKind
 {
     TypeMembers,
     Statements,
+    Expression,
 }
 
 public enum CSharpIndentationStyle

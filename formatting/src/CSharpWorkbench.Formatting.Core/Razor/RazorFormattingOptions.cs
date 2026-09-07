@@ -80,5 +80,7 @@ internal sealed class RazorFormattingOptions
 
     public bool TrimTrailingWhitespace { get; set; }
 
+    public int? BlankLinesAroundFunctions { get; set; }
+
     public RazorMarkupFormattingOptions Markup { get; } = new();
 }

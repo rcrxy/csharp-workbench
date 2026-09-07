@@ -63,7 +63,7 @@ public sealed class CSharpSyntaxLineWrapperTests
     }
 
     [Fact]
-    public async Task DoesNotWrapRangeOrSnippet()
+    public async Task DoesNotWrapRangeButWrapsStatementSnippet()
     {
         const string source = "void Run(){var result=firstValue+secondValue+thirdValue+fourthValue;}";
         var options = new Dictionary<string, string> { ["max_line_length"] = "20" };
@@ -86,7 +86,7 @@ public sealed class CSharpSyntaxLineWrapperTests
         var snippet = ApplyChanges(snippetSource, snippetResult.Changes);
 
         Assert.DoesNotContain("firstValue\n", range, StringComparison.Ordinal);
-        Assert.DoesNotContain("firstValue\n", snippet, StringComparison.Ordinal);
+        Assert.Contains("firstValue\n", snippet, StringComparison.Ordinal);
     }
 
     [Fact]

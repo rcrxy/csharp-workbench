@@ -27,6 +27,7 @@ internal sealed class RazorDocumentScanner
         var cursor = 0;
         var controlDepth = 0;
         var pendingControlBrace = false;
+        var pendingControlContinuation = false;
 
         while (cursor < source.Length)
         {
@@ -61,7 +62,8 @@ internal sealed class RazorDocumentScanner
 
                 if (tag.IsDeclaration)
                 {
-                    Add(regions, RazorRegionKind.Protected, cursor, tag.End - cursor);
+                    Add(regions, RazorRegionKind.Protected, cursor, tag.End - cursor,
+                        protectedMetadata: new RazorProtectedMetadata(RazorProtectedKind.Declaration));
                     cursor = tag.End;
                     continue;
                 }
@@ -101,7 +103,8 @@ internal sealed class RazorDocumentScanner
                             return Unreliable(regions);
 
                         if (closingStart > cursor)
-                            Add(regions, RazorRegionKind.Protected, cursor, closingStart - cursor);
+                            Add(regions, RazorRegionKind.Protected, cursor, closingStart - cursor,
+                                protectedMetadata: new RazorProtectedMetadata(RazorProtectedKind.ScriptStyle));
                         cursor = closingStart;
                     }
                 }
@@ -120,9 +123,10 @@ internal sealed class RazorDocumentScanner
 
                 if (contentStart < trimmedEnd && source[contentStart] == '@')
                 {
-                    if (TryScanCodeBlock(source, contentStart, out var codeBlockEnd))
+                    if (TryScanCodeBlock(source, contentStart, out var codeBlockEnd, out var codeBlock))
                     {
-                        Add(regions, RazorRegionKind.CodeBlock, contentStart, codeBlockEnd - contentStart);
+                        Add(regions, RazorRegionKind.CodeBlock, contentStart, codeBlockEnd - contentStart,
+                            codeBlock: codeBlock);
                         cursor = codeBlockEnd;
                         continue;
                     }
@@ -132,10 +136,13 @@ internal sealed class RazorDocumentScanner
                         !(string.Equals(keyword, "using", StringComparison.OrdinalIgnoreCase) &&
                             !HasUsingControlSyntax(source, contentStart + 1 + keyword.Length, contentEnd)))
                     {
-                        Add(regions, RazorRegionKind.ControlHeader, contentStart, trimmedEnd - contentStart);
-                        if (ContainsUnquotedBrace(source, contentStart, trimmedEnd, '{'))
-                            controlDepth++;
-                        else
+                        var control = CreateControlMetadata(source, contentStart, trimmedEnd, keyword, true);
+                        Add(regions, RazorRegionKind.ControlHeader, contentStart, trimmedEnd - contentStart,
+                            control: control);
+                        var braceDelta = CountBraceDelta(source, contentStart, trimmedEnd);
+                        controlDepth = Math.Max(0, controlDepth + braceDelta);
+                        if (braceDelta == 0 && !control.IsInlineComplete &&
+                            !ContainsUnquotedBrace(source, contentStart, trimmedEnd, '{'))
                             pendingControlBrace = true;
                         cursor = trimmedEnd;
                         continue;
@@ -160,26 +167,68 @@ internal sealed class RazorDocumentScanner
 
                 if (controlDepth > 0 && contentStart < trimmedEnd && source[contentStart] == '}')
                 {
-                    Add(regions, RazorRegionKind.ControlCloseBrace, contentStart, trimmedEnd - contentStart);
+                    Add(regions, RazorRegionKind.ControlCloseBrace, contentStart, 1);
                     controlDepth--;
+                    var continuationStart = contentStart + 1;
+                    while (continuationStart < trimmedEnd && char.IsWhiteSpace(source[continuationStart]))
+                        continuationStart++;
+                    if (continuationStart < trimmedEnd &&
+                        IsControlContinuation(source, continuationStart, trimmedEnd))
+                    {
+                        var keyword = ReadRazorKeyword(source, continuationStart);
+                        var control = CreateControlMetadata(
+                            source,
+                            continuationStart,
+                            trimmedEnd,
+                            keyword,
+                            false);
+                        Add(
+                            regions,
+                            RazorRegionKind.ControlHeader,
+                            continuationStart,
+                            trimmedEnd - continuationStart,
+                            control: control);
+                        var braceDelta = CountBraceDelta(source, continuationStart, trimmedEnd);
+                        controlDepth = Math.Max(0, controlDepth + braceDelta);
+                        if (braceDelta == 0 && !control.IsInlineComplete &&
+                            !IsDoWhileContinuation(source, continuationStart, trimmedEnd) &&
+                            !ContainsUnquotedBrace(source, continuationStart, trimmedEnd, '{'))
+                        {
+                            pendingControlBrace = true;
+                        }
+                        pendingControlContinuation = false;
+                    }
+                    else
+                    {
+                        pendingControlContinuation = true;
+                    }
                     cursor = trimmedEnd;
                     continue;
                 }
 
-                if (IsControlContinuation(source, contentStart, trimmedEnd))
+                if (pendingControlContinuation && IsControlContinuation(source, contentStart, trimmedEnd))
                 {
-                    Add(regions, RazorRegionKind.ControlHeader, contentStart, trimmedEnd - contentStart);
-                    if (ContainsUnquotedBrace(source, contentStart, trimmedEnd, '{'))
-                        controlDepth++;
-                    else if (!IsDoWhileContinuation(source, contentStart, trimmedEnd))
+                    var keyword = ReadRazorKeyword(source, contentStart);
+                    var control = CreateControlMetadata(source, contentStart, trimmedEnd, keyword, false);
+                    Add(regions, RazorRegionKind.ControlHeader, contentStart, trimmedEnd - contentStart,
+                        control: control);
+                    var braceDelta = CountBraceDelta(source, contentStart, trimmedEnd);
+                    controlDepth = Math.Max(0, controlDepth + braceDelta);
+                    if (braceDelta == 0 && !control.IsInlineComplete &&
+                        !IsDoWhileContinuation(source, contentStart, trimmedEnd) &&
+                        !ContainsUnquotedBrace(source, contentStart, trimmedEnd, '{'))
                         pendingControlBrace = true;
+                    pendingControlContinuation = false;
                     cursor = trimmedEnd;
                     continue;
                 }
 
                 if (controlDepth > 0 && contentStart < trimmedEnd && source[contentStart] != '<')
                 {
-                    Add(regions, RazorRegionKind.Protected, cursor, trimmedEnd - cursor);
+                    Add(regions, RazorRegionKind.Protected, cursor, trimmedEnd - cursor,
+                        protectedMetadata: new RazorProtectedMetadata(
+                            RazorProtectedKind.CSharpStatement,
+                            new RazorSourceSpan(contentStart, trimmedEnd - contentStart)));
                     cursor = trimmedEnd;
                     continue;
                 }
@@ -194,14 +243,21 @@ internal sealed class RazorDocumentScanner
 
             if (source[cursor] == '@' && TryScanRazorExpression(source, cursor, out var expressionEnd))
             {
-                Add(regions, RazorRegionKind.Protected, cursor, expressionEnd - cursor);
+                var csharpSpan = GetRazorExpressionCSharpSpan(source, cursor, expressionEnd);
+                Add(regions, RazorRegionKind.Protected, cursor, expressionEnd - cursor,
+                    protectedMetadata: new RazorProtectedMetadata(RazorProtectedKind.RazorExpression, csharpSpan));
                 cursor = expressionEnd;
                 continue;
             }
 
             var textStart = cursor++;
             while (cursor < source.Length && source[cursor] != '<' && source[cursor] != '@' &&
-                !IsControlLineStart(source, cursor, controlDepth, pendingControlBrace))
+                !IsControlLineStart(
+                    source,
+                    cursor,
+                    controlDepth,
+                    pendingControlBrace,
+                    pendingControlContinuation))
             {
                 cursor++;
             }
@@ -399,9 +455,14 @@ internal sealed class RazorDocumentScanner
             isSelfClosing);
     }
 
-    private static bool TryScanCodeBlock(string source, int start, out int end)
+    private static bool TryScanCodeBlock(
+        string source,
+        int start,
+        out int end,
+        out RazorCodeBlockMetadata metadata)
     {
         end = 0;
+        metadata = null!;
         var keyword = ReadRazorKeyword(source, start + 1);
         var isNamedBlock = string.Equals(keyword, "code", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(keyword, "functions", StringComparison.OrdinalIgnoreCase);
@@ -411,7 +472,113 @@ internal sealed class RazorDocumentScanner
         if (cursor >= source.Length || source[cursor] != '{')
             return false;
 
-        return TryScanBalancedCSharp(source, cursor, '{', '}', out end);
+        if (!TryScanBalancedCSharp(source, cursor, '{', '}', out end))
+            return false;
+
+        var kind = string.Equals(keyword, "code", StringComparison.OrdinalIgnoreCase)
+            ? RazorCodeBlockKind.Code
+            : string.Equals(keyword, "functions", StringComparison.OrdinalIgnoreCase)
+                ? RazorCodeBlockKind.Functions
+                : RazorCodeBlockKind.Explicit;
+        metadata = new RazorCodeBlockMetadata(
+            kind,
+            new RazorSourceSpan(cursor + 1, end - cursor - 2),
+            new RazorSourceSpan(cursor, 1),
+            new RazorSourceSpan(end - 1, 1));
+        return true;
+    }
+
+    private static RazorControlMetadata CreateControlMetadata(
+        string source,
+        int start,
+        int end,
+        string keyword,
+        bool hasTransition)
+    {
+        var kind = ResolveControlKind(source, start, end, keyword);
+        var headerStart = hasTransition ? start + 1 : start;
+        var openBrace = FindUnquotedCharacter(source, headerStart, end, '{');
+        var closeBrace = FindUnquotedCharacter(source, headerStart, end, '}');
+        var headerEnd = openBrace >= 0 ? openBrace : end;
+        RazorSourceSpan? csharpHeaderSpan = null;
+        if (kind is not RazorControlKind.Else and not RazorControlKind.Try and
+            not RazorControlKind.Finally and not RazorControlKind.Do)
+        {
+            csharpHeaderSpan = new RazorSourceSpan(headerStart, headerEnd - headerStart);
+        }
+        return new RazorControlMetadata(
+            kind,
+            new RazorSourceSpan(start, headerEnd - start),
+            csharpHeaderSpan,
+            openBrace >= 0 && closeBrace > openBrace);
+    }
+
+    private static RazorControlKind ResolveControlKind(string source, int start, int end, string keyword)
+    {
+        if (string.Equals(keyword, "else", StringComparison.OrdinalIgnoreCase))
+        {
+            var rest = source.Substring(start + keyword.Length, end - start - keyword.Length).TrimStart();
+            return rest.StartsWith("if", StringComparison.OrdinalIgnoreCase)
+                ? RazorControlKind.ElseIf
+                : RazorControlKind.Else;
+        }
+        return keyword.ToLowerInvariant() switch
+        {
+            "if" => RazorControlKind.If,
+            "for" => RazorControlKind.For,
+            "foreach" => RazorControlKind.Foreach,
+            "while" => RazorControlKind.While,
+            "switch" => RazorControlKind.Switch,
+            "try" => RazorControlKind.Try,
+            "catch" => RazorControlKind.Catch,
+            "finally" => RazorControlKind.Finally,
+            "using" => RazorControlKind.Using,
+            "lock" => RazorControlKind.Lock,
+            "do" => RazorControlKind.Do,
+            _ => RazorControlKind.If,
+        };
+    }
+
+    private static RazorSourceSpan GetRazorExpressionCSharpSpan(string source, int start, int end)
+    {
+        return source[start + 1] == '('
+            ? new RazorSourceSpan(start + 2, end - start - 3)
+            : new RazorSourceSpan(start + 1, end - start - 1);
+    }
+
+    private static int CountBraceDelta(string source, int start, int end)
+    {
+        var delta = 0;
+        for (var cursor = start; cursor < end; cursor++)
+        {
+            if (source[cursor] == '"' || source[cursor] == '\'')
+            {
+                if (!SkipQuoted(source, cursor, source[cursor], false, out cursor))
+                    return delta;
+                cursor--;
+            }
+            else if (source[cursor] == '{')
+                delta++;
+            else if (source[cursor] == '}')
+                delta--;
+        }
+        return delta;
+    }
+
+    private static int FindUnquotedCharacter(string source, int start, int end, char value)
+    {
+        for (var cursor = start; cursor < end; cursor++)
+        {
+            if (source[cursor] == '"' || source[cursor] == '\'')
+            {
+                if (!SkipQuoted(source, cursor, source[cursor], false, out cursor))
+                    return -1;
+                cursor--;
+            }
+            else if (source[cursor] == value)
+                return cursor;
+        }
+        return -1;
     }
 
     private static bool TryScanRazorExpression(string source, int start, out int end)
@@ -585,9 +752,11 @@ internal sealed class RazorDocumentScanner
         string source,
         int position,
         int controlDepth,
-        bool pendingControlBrace)
+        bool pendingControlBrace,
+        bool pendingControlContinuation)
     {
-        if ((controlDepth == 0 && !pendingControlBrace) || !IsLineContentStart(source, position))
+        if ((controlDepth == 0 && !pendingControlBrace && !pendingControlContinuation) ||
+            !IsLineContentStart(source, position))
             return false;
 
         if (position > 0 && source[position - 1] != '\n' && source[position - 1] != '\r')
@@ -647,10 +816,20 @@ internal sealed class RazorDocumentScanner
         int start,
         int length,
         string? name = null,
-        RazorTagMetadata? tag = null)
+        RazorTagMetadata? tag = null,
+        RazorCodeBlockMetadata? codeBlock = null,
+        RazorControlMetadata? control = null,
+        RazorProtectedMetadata? protectedMetadata = null)
     {
         if (length > 0)
-            regions.Add(new RazorRegion(kind, new RazorSourceSpan(start, length), name, tag));
+            regions.Add(new RazorRegion(
+                kind,
+                new RazorSourceSpan(start, length),
+                name,
+                tag,
+                codeBlock,
+                control,
+                protectedMetadata));
     }
 
     private static RazorDocumentModel Unreliable(IReadOnlyList<RazorRegion> regions) => new(false, regions);

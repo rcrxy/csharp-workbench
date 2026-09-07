@@ -1,4 +1,5 @@
 using System.Text;
+using CSharpWorkbench.Formatting.Core.CSharp.Options;
 
 namespace CSharpWorkbench.Formatting.Core.Razor;
 
@@ -8,24 +9,28 @@ internal sealed class RazorMarkupFormatter
         string source,
         RazorDocumentModel document,
         RazorFormattingOptions options,
+        CSharpFormattingOptions csharpOptions,
+        IReadOnlyList<RazorSourceEdit> csharpEdits,
         CancellationToken cancellationToken)
     {
+        var overlay = new RazorSourceOverlay(source, csharpEdits);
         var regions = document.Regions;
         var matchingEnds = FindMatchingEnds(regions);
         var preserveSourceLayout = AreAllLineBreakRulesDisabled(options.Markup);
-        var formattedTags = FormatTags(source, regions, options, preserveSourceLayout, cancellationToken);
+        var formattedTags = FormatTags(source, overlay, regions, options, preserveSourceLayout, cancellationToken);
         if (preserveSourceLayout)
-            return ApplyTagReplacements(source, regions, formattedTags, 0, regions.Count);
+            return ApplyTagReplacements(source, overlay, regions, formattedTags, 0, regions.Count);
 
         var builder = new StringBuilder(source.Length + 64);
         var markupDepth = 0;
         var controlDepth = 0;
+        var previousControlClose = false;
 
         for (var index = 0; index < regions.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var region = regions[index];
-            var raw = Slice(source, region.Span);
+            var raw = overlay.GetText(region.Span);
 
             if (region.Kind == RazorRegionKind.StartTag && matchingEnds.TryGetValue(index, out var endIndex))
             {
@@ -41,8 +46,8 @@ internal sealed class RazorMarkupFormatter
                 {
                     AppendStructuralValue(
                         builder,
-                        GetIndent(markupDepth + controlDepth, options),
-                        ComposePreservedElement(source, regions, formattedTags, index, endIndex));
+                        GetIndent(markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options),
+                        ComposePreservedElement(source, overlay, regions, formattedTags, index, endIndex));
                     index = endIndex;
                     continue;
                 }
@@ -51,8 +56,8 @@ internal sealed class RazorMarkupFormatter
                 {
                     AppendStructuralValue(
                         builder,
-                        GetIndent(markupDepth + controlDepth, options),
-                        ApplyTagReplacements(source, regions, formattedTags, index, endIndex + 1));
+                        GetIndent(markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options),
+                        ApplyTagReplacements(source, overlay, regions, formattedTags, index, endIndex + 1));
                     index = endIndex;
                     continue;
                 }
@@ -71,14 +76,15 @@ internal sealed class RazorMarkupFormatter
                 {
                     AppendStructuralValue(
                         builder,
-                        GetIndent(markupDepth + controlDepth, options),
+                        GetIndent(markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options),
                         FormatDirectTextElement(
                             source,
+                            overlay,
                             regions,
                             formattedTags,
                             index,
                             endIndex,
-                            markupDepth + controlDepth,
+                            markupDepth + EffectiveControlDepth(controlDepth, csharpOptions),
                             options));
                     index = endIndex;
                     continue;
@@ -90,7 +96,7 @@ internal sealed class RazorMarkupFormatter
                     AppendStructuralValue(
                         builder,
                         GetIndent(markupDepth + controlDepth, options),
-                        ApplyTagReplacements(source, regions, formattedTags, index, endIndex + 1));
+                        ApplyTagReplacements(source, overlay, regions, formattedTags, index, endIndex + 1));
                     index = endIndex;
                     continue;
                 }
@@ -99,40 +105,98 @@ internal sealed class RazorMarkupFormatter
             switch (region.Kind)
             {
                 case RazorRegionKind.StartTag:
-                    AppendStructuralValue(builder, GetIndent(markupDepth + controlDepth, options), formattedTags[index]);
+                    AppendStructuralValue(builder, GetIndent(
+                        markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options), formattedTags[index]);
                     markupDepth++;
+                    previousControlClose = false;
                     break;
                 case RazorRegionKind.EndTag:
                     markupDepth = Math.Max(0, markupDepth - 1);
-                    AppendStructuralValue(builder, GetIndent(markupDepth + controlDepth, options), raw);
+                    AppendStructuralValue(builder, GetIndent(
+                        markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options), raw);
+                    previousControlClose = false;
                     break;
                 case RazorRegionKind.SelfClosingTag:
-                    AppendStructuralValue(builder, GetIndent(markupDepth + controlDepth, options), formattedTags[index]);
+                    AppendStructuralValue(builder, GetIndent(
+                        markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options), formattedTags[index]);
+                    previousControlClose = false;
                     break;
                 case RazorRegionKind.ControlHeader:
-                    AppendStructuralValue(builder, GetIndent(markupDepth + controlDepth, options), raw.TrimStart());
-                    if (raw.IndexOf('{') >= 0)
+                    AppendControlHeader(
+                        builder,
+                        raw.TrimStart(),
+                        region.Control,
+                        previousControlClose,
+                        GetIndent(markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options),
+                        options,
+                        csharpOptions);
+                    if (region.Control?.IsInlineComplete == false && raw.IndexOf('{') >= 0)
                         controlDepth++;
+                    previousControlClose = false;
                     break;
                 case RazorRegionKind.ControlOpenBrace:
-                    AppendStructuralValue(builder, GetIndent(markupDepth + controlDepth, options), raw.TrimStart());
+                    AppendControlOpenBrace(
+                        builder,
+                        raw.TrimStart(),
+                        GetIndent(markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options),
+                        options,
+                        csharpOptions);
                     controlDepth++;
+                    previousControlClose = false;
                     break;
                 case RazorRegionKind.ControlCloseBrace:
                     controlDepth = Math.Max(0, controlDepth - 1);
-                    AppendStructuralValue(builder, GetIndent(markupDepth + controlDepth, options), raw.TrimStart());
+                    AppendStructuralValue(builder, GetIndent(
+                        markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options), raw.TrimStart());
+                    previousControlClose = true;
                     break;
                 case RazorRegionKind.Directive:
                 case RazorRegionKind.HtmlComment:
                 case RazorRegionKind.RazorComment:
-                    AppendStructuralValue(builder, GetIndent(markupDepth + controlDepth, options), raw.TrimStart());
+                    AppendStructuralValue(builder, GetIndent(
+                        markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options), raw.TrimStart());
+                    previousControlClose = false;
                     break;
                 case RazorRegionKind.CodeBlock:
+                    var codeBlockIndent = GetIndent(
+                        markupDepth + EffectiveControlDepth(controlDepth, csharpOptions),
+                        options);
+                    if (region.CodeBlock?.Kind == RazorCodeBlockKind.Functions &&
+                        options.BlankLinesAroundFunctions is int blankLines)
+                    {
+                        EnsureTrailingLineBreaks(builder, blankLines + 1);
+                        AppendCodeBlock(builder, raw, codeBlockIndent, options);
+                        EnsureTrailingLineBreaks(builder, blankLines + 1);
+                        previousControlClose = false;
+                        break;
+                    }
+                    AppendCodeBlock(builder, raw, codeBlockIndent, options);
+                    previousControlClose = false;
+                    break;
                 case RazorRegionKind.Protected:
-                    AppendProtected(builder, raw);
+                    if (region.Protected?.Kind == RazorProtectedKind.CSharpStatement)
+                    {
+                        AppendStructuralValue(
+                            builder,
+                            GetIndent(
+                                markupDepth + EffectiveControlDepth(controlDepth, csharpOptions),
+                                options),
+                            raw.TrimStart());
+                    }
+                    else
+                    {
+                        AppendProtected(builder, raw);
+                    }
+                    previousControlClose = false;
                     break;
                 case RazorRegionKind.Text:
-                    AppendText(builder, source, regions, index, markupDepth + controlDepth, options);
+                    AppendText(
+                        builder,
+                        overlay,
+                        regions,
+                        index,
+                        markupDepth + EffectiveControlDepth(controlDepth, csharpOptions),
+                        options);
                     break;
             }
         }
@@ -142,6 +206,7 @@ internal sealed class RazorMarkupFormatter
 
     private static Dictionary<int, string> FormatTags(
         string source,
+        RazorSourceOverlay overlay,
         IReadOnlyList<RazorRegion> regions,
         RazorFormattingOptions options,
         bool preserveSourceLayout,
@@ -164,7 +229,7 @@ internal sealed class RazorMarkupFormatter
                 var baseIndent = preserveSourceLayout
                     ? GetSourceLineIndent(source, region.Span.Start)
                     : GetIndent(markupDepth + controlDepth, options);
-                result[index] = FormatTag(source, region, baseIndent, options);
+                result[index] = FormatTag(source, overlay, region, baseIndent, options);
             }
 
             if (region.Kind == RazorRegionKind.StartTag)
@@ -180,21 +245,22 @@ internal sealed class RazorMarkupFormatter
 
     private static string FormatTag(
         string source,
+        RazorSourceOverlay overlay,
         RazorRegion region,
         string baseIndent,
         RazorFormattingOptions options)
     {
-        var original = Slice(source, region.Span);
+        var original = overlay.GetText(region.Span);
         var tag = region.Tag;
         if (tag is null || !tag.AttributesReliable)
             return original;
 
         var markup = options.Markup;
         if (markup.AttributeStyle == RazorAttributeStyle.DoNotTouch)
-            return FormatDoNotTouchTag(source, region, tag, options);
+            return FormatDoNotTouchTag(source, overlay, region, tag, options);
 
-        var name = Slice(source, tag.NameSpan);
-        var attributes = tag.Attributes.Select(attribute => FormatAttribute(source, attribute, markup)).ToArray();
+        var name = overlay.GetText(tag.NameSpan);
+        var attributes = tag.Attributes.Select(attribute => FormatAttribute(overlay, attribute, markup)).ToArray();
         var close = GetTagClose(tag.IsSelfClosingSyntax, attributes.Length > 0, markup);
         if (attributes.Length == 0)
             return "<" + name + close;
@@ -227,12 +293,12 @@ internal sealed class RazorMarkupFormatter
 
     private static string FormatDoNotTouchTag(
         string source,
+        RazorSourceOverlay overlay,
         RazorRegion region,
         RazorTagMetadata tag,
         RazorFormattingOptions options)
     {
-        var original = Slice(source, region.Span);
-        var replacements = new List<(int Start, int Length, string Text)>();
+        var replacements = new List<(RazorSourceSpan Span, string NewText)>();
         foreach (var attribute in tag.Attributes)
         {
             if (attribute.EqualsSpan is not RazorSourceSpan equalsSpan ||
@@ -242,26 +308,25 @@ internal sealed class RazorMarkupFormatter
             }
 
             replacements.Add((
-                attribute.NameSpan.End - region.Span.Start,
-                valueSpan.Start - attribute.NameSpan.End,
+                new RazorSourceSpan(attribute.NameSpan.End, valueSpan.Start - attribute.NameSpan.End),
                 options.Markup.SpacesAroundAttributeEquals ? " = " : "="));
         }
 
-        var result = ApplyReplacements(original, replacements);
+        var result = overlay.GetText(region.Span, replacements);
         return ApplyClosingDelimiterSpacing(result, tag.IsSelfClosingSyntax, tag.Attributes.Count > 0, options.Markup);
     }
 
     private static string FormatAttribute(
-        string source,
+        RazorSourceOverlay overlay,
         RazorAttributeMetadata attribute,
         RazorMarkupFormattingOptions options)
     {
-        var name = Slice(source, attribute.NameSpan);
+        var name = overlay.GetText(attribute.NameSpan);
         if (attribute.ValueSpan is not RazorSourceSpan valueSpan)
             return name;
 
         var equals = options.SpacesAroundAttributeEquals ? " = " : "=";
-        return name + equals + Slice(source, valueSpan);
+        return name + equals + overlay.GetText(valueSpan);
     }
 
     private static string GetTagClose(
@@ -391,6 +456,7 @@ internal sealed class RazorMarkupFormatter
 
     private static string ComposePreservedElement(
         string source,
+        RazorSourceOverlay overlay,
         IReadOnlyList<RazorRegion> regions,
         IReadOnlyDictionary<int, string> formattedTags,
         int startIndex,
@@ -399,8 +465,8 @@ internal sealed class RazorMarkupFormatter
         var start = regions[startIndex];
         var end = regions[endIndex];
         return formattedTags[startIndex] +
-            source.Substring(start.Span.End, end.Span.Start - start.Span.End) +
-            Slice(source, end.Span);
+            overlay.GetText(start.Span.End, end.Span.Start - start.Span.End) +
+            overlay.GetText(end.Span);
     }
 
     private static bool HasChildRequiringLineBreak(
@@ -436,6 +502,7 @@ internal sealed class RazorMarkupFormatter
 
     private static string FormatDirectTextElement(
         string source,
+        RazorSourceOverlay overlay,
         IReadOnlyList<RazorRegion> regions,
         IReadOnlyDictionary<int, string> formattedTags,
         int startIndex,
@@ -458,7 +525,7 @@ internal sealed class RazorMarkupFormatter
             if (!formattedTags.TryGetValue(index, out var formatted))
                 continue;
 
-            builder.Append(source, cursor, region.Span.Start - cursor);
+            builder.Append(overlay.GetText(cursor, region.Span.Start - cursor));
             var isTopLevelChild = index > startIndex && depth == 1 &&
                 region.Kind is RazorRegionKind.StartTag or RazorRegionKind.SelfClosingTag;
             var shouldBreak = isTopLevelChild &&
@@ -479,12 +546,13 @@ internal sealed class RazorMarkupFormatter
                 depth++;
         }
 
-        builder.Append(source, cursor, end - cursor);
+        builder.Append(overlay.GetText(cursor, end - cursor));
         return builder.ToString();
     }
 
     private static string ApplyTagReplacements(
         string source,
+        RazorSourceOverlay overlay,
         IReadOnlyList<RazorRegion> regions,
         IReadOnlyDictionary<int, string> formattedTags,
         int startIndex,
@@ -502,28 +570,116 @@ internal sealed class RazorMarkupFormatter
             var region = regions[index];
             if (!formattedTags.TryGetValue(index, out var formatted))
                 continue;
-            builder.Append(source, cursor, region.Span.Start - cursor);
+            builder.Append(overlay.GetText(cursor, region.Span.Start - cursor));
             builder.Append(formatted);
             cursor = region.Span.End;
         }
-        builder.Append(source, cursor, end - cursor);
+        builder.Append(overlay.GetText(cursor, end - cursor));
         return builder.ToString();
-    }
-
-    private static string ApplyReplacements(
-        string value,
-        IEnumerable<(int Start, int Length, string Text)> replacements)
-    {
-        return replacements.OrderByDescending(replacement => replacement.Start).Aggregate(
-            value,
-            (current, replacement) => current.Substring(0, replacement.Start) + replacement.Text +
-                current.Substring(replacement.Start + replacement.Length));
     }
 
     private static void AppendStructuralValue(StringBuilder builder, string indent, string value)
     {
         EnsureLineStart(builder);
         builder.Append(indent).Append(value.TrimEnd(' ', '\t', '\r', '\n')).Append('\n');
+    }
+
+    private static void AppendControlHeader(
+        StringBuilder builder,
+        string value,
+        RazorControlMetadata? control,
+        bool previousControlClose,
+        string indent,
+        RazorFormattingOptions razorOptions,
+        CSharpFormattingOptions csharpOptions)
+    {
+        var joinContinuation = previousControlClose && control is not null && ShouldJoinContinuation(control.Kind, csharpOptions);
+        if (joinContinuation)
+        {
+            RemoveSingleTrailingLineEnding(builder);
+            builder.Append(' ').Append(value.TrimEnd(' ', '\t', '\r', '\n')).Append('\n');
+            return;
+        }
+
+        if (control?.IsInlineComplete == false && ShouldPlaceControlBraceOnNewLine(csharpOptions))
+        {
+            var brace = value.IndexOf('{');
+            if (brace >= 0)
+            {
+                AppendStructuralValue(builder, indent, value.Substring(0, brace).TrimEnd());
+                AppendStructuralValue(builder, indent, value.Substring(brace).TrimStart());
+                return;
+            }
+        }
+
+        if (control?.IsInlineComplete == true)
+        {
+            var brace = value.IndexOf('{');
+            if (brace > 0 && value[brace - 1] != ' ' && value[brace - 1] != '\t')
+                value = value.Substring(0, brace) + " " + value.Substring(brace);
+        }
+
+        AppendStructuralValue(builder, indent, value);
+    }
+
+    private static void AppendControlOpenBrace(
+        StringBuilder builder,
+        string value,
+        string indent,
+        RazorFormattingOptions razorOptions,
+        CSharpFormattingOptions csharpOptions)
+    {
+        if (!ShouldPlaceControlBraceOnNewLine(csharpOptions))
+        {
+            RemoveSingleTrailingLineEnding(builder);
+            builder.Append(' ').Append(value.TrimEnd(' ', '\t', '\r', '\n')).Append('\n');
+            return;
+        }
+
+        AppendStructuralValue(builder, indent, value);
+    }
+
+    private static bool ShouldPlaceControlBraceOnNewLine(CSharpFormattingOptions options)
+    {
+        return options.CSharpNewLines.BeforeOpenBrace == CSharpOpenBraceMode.All ||
+            options.CSharpNewLines.BeforeOpenBrace == CSharpOpenBraceMode.Selected &&
+            options.CSharpNewLines.OpenBraceContexts.Contains(CSharpOpenBraceContext.ControlBlocks);
+    }
+
+    private static bool ShouldJoinContinuation(RazorControlKind kind, CSharpFormattingOptions options)
+    {
+        return kind switch
+        {
+            RazorControlKind.Else or RazorControlKind.ElseIf => !options.CSharpNewLines.BeforeElse,
+            RazorControlKind.Catch => !options.CSharpNewLines.BeforeCatch,
+            RazorControlKind.Finally => !options.CSharpNewLines.BeforeFinally,
+            RazorControlKind.While => true,
+            _ => false,
+        };
+    }
+
+    private static int EffectiveControlDepth(int controlDepth, CSharpFormattingOptions options)
+    {
+        return options.CSharpIndentation.IndentBlockContents ? controlDepth : 0;
+    }
+
+    private static void RemoveSingleTrailingLineEnding(StringBuilder builder)
+    {
+        if (builder.Length > 0 && builder[builder.Length - 1] == '\n')
+        {
+            builder.Length--;
+            if (builder.Length > 0 && builder[builder.Length - 1] == '\r')
+                builder.Length--;
+        }
+    }
+
+    private static void EnsureTrailingLineBreaks(StringBuilder builder, int count)
+    {
+        var existing = 0;
+        for (var index = builder.Length - 1; index >= 0 && builder[index] == '\n'; index--)
+            existing++;
+        if (existing < count)
+            builder.Append('\n', count - existing);
     }
 
     private static void AppendProtected(StringBuilder builder, string value)
@@ -537,15 +693,41 @@ internal sealed class RazorMarkupFormatter
             builder.Append('\n');
     }
 
+    private static void AppendCodeBlock(
+        StringBuilder builder,
+        string value,
+        string baseIndent,
+        RazorFormattingOptions options)
+    {
+        EnsureLineStart(builder);
+        var lines = value.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        if (lines.Length == 1)
+        {
+            builder.Append(baseIndent).Append(lines[0].TrimStart()).Append('\n');
+            return;
+        }
+
+        var bodyIndent = baseIndent + GetIndent(1, options);
+        builder.Append(baseIndent).Append(lines[0].TrimStart()).Append('\n');
+        for (var index = 1; index < lines.Length - 1; index++)
+        {
+            if (lines[index].Length == 0)
+                builder.Append('\n');
+            else
+                builder.Append(bodyIndent).Append(lines[index]).Append('\n');
+        }
+        builder.Append(baseIndent).Append(lines[lines.Length - 1].TrimStart()).Append('\n');
+    }
+
     private static void AppendText(
         StringBuilder builder,
-        string source,
+        RazorSourceOverlay overlay,
         IReadOnlyList<RazorRegion> regions,
         int index,
         int depth,
         RazorFormattingOptions options)
     {
-        var value = Slice(source, regions[index].Span);
+        var value = overlay.GetText(regions[index].Span);
         if (string.IsNullOrWhiteSpace(value))
         {
             if (index > 0 && index + 1 < regions.Count && IsTag(regions[index - 1]) && IsTag(regions[index + 1]))

@@ -64,7 +64,7 @@ public sealed class RazorFormatterTests
     }
 
     [Fact]
-    public async Task IndentsMarkupInsideRazorControlWithoutFormattingHeader()
+    public async Task IndentsMarkupInsideRazorControlAndFormatsHeader()
     {
         var source = string.Join("\n", new[]
         {
@@ -81,7 +81,7 @@ public sealed class RazorFormatterTests
         Assert.Equal(string.Join("\n", new[]
         {
             "<div>",
-            "    @if(enabled)",
+            "    @if (enabled)",
             "    {",
             "        <span>Value</span>",
             "    }",
@@ -111,11 +111,14 @@ public sealed class RazorFormatterTests
     [Theory]
     [InlineData("@code")]
     [InlineData("@functions")]
-    public async Task PreservesNamedCodeBlocks(string keyword)
+    public async Task FormatsNamedCodeBlocksWithoutScanningFakeTags(string keyword)
     {
         var source = keyword + " {\nList<string> values = new();\nvar text = \"<div>{ value }</div>\";\nvar raw = \"\"\" </span> { } \"\"\";\n}";
+        var formatted = await FormatAsync(source);
 
-        Assert.Equal(source, await FormatAsync(source));
+        Assert.Contains("    List<string> values = new();", formatted, StringComparison.Ordinal);
+        Assert.Contains("\"<div>{ value }</div>\"", formatted, StringComparison.Ordinal);
+        Assert.Contains("\"\"\" </span> { } \"\"\"", formatted, StringComparison.Ordinal);
     }
 
     [Fact]

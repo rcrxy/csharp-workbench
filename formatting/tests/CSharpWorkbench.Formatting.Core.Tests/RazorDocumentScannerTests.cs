@@ -51,6 +51,39 @@ public sealed class RazorDocumentScannerTests
         Assert.False(widget.Tag!.AttributesReliable);
     }
 
+    [Fact]
+    public void CapturesCodeBlockBodyAndBraceSpans()
+    {
+        const string source = "@code {\nint value=1;\n}\n@{\nDo();\n}";
+        var model = new RazorDocumentScanner().Scan(source, RazorDocumentKind.Component, default);
+        var blocks = model.Regions.Where(region => region.CodeBlock is not null).ToArray();
+
+        Assert.Equal(2, blocks.Length);
+        Assert.Equal(RazorCodeBlockKind.Code, blocks[0].CodeBlock!.Kind);
+        Assert.Equal("\nint value=1;\n", Slice(source, blocks[0].CodeBlock!.BodySpan));
+        Assert.Equal("{", Slice(source, blocks[0].CodeBlock!.OpenBraceSpan));
+        Assert.Equal("}", Slice(source, blocks[0].CodeBlock!.CloseBraceSpan));
+        Assert.Equal(RazorCodeBlockKind.Explicit, blocks[1].CodeBlock!.Kind);
+    }
+
+    [Fact]
+    public void DistinguishesControlExpressionStatementAndRawProtectedRegions()
+    {
+        const string source = "@if(enabled) { count++; }\n<script>left+right</script>\n<span>@(left+right)</span>";
+        var model = new RazorDocumentScanner().Scan(source, RazorDocumentKind.Component, default);
+        var control = model.Regions.Single(region => region.Control is not null).Control!;
+        var protectedKinds = model.Regions
+            .Where(region => region.Protected is not null)
+            .Select(region => region.Protected!.Kind)
+            .ToArray();
+
+        Assert.Equal(RazorControlKind.If, control.Kind);
+        Assert.True(control.IsInlineComplete);
+        Assert.Equal("if(enabled) ", Slice(source, control.CSharpHeaderSpan!.Value));
+        Assert.Contains(RazorProtectedKind.ScriptStyle, protectedKinds);
+        Assert.Contains(RazorProtectedKind.RazorExpression, protectedKinds);
+    }
+
     private static string Slice(string source, RazorSourceSpan span)
     {
         return source.Substring(span.Start, span.Length);

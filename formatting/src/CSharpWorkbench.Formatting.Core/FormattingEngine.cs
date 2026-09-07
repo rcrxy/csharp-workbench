@@ -11,12 +11,12 @@ public sealed class FormattingEngine
     private readonly CSharpRoslynFormatter _csharpFormatter;
     private readonly RazorFormatter _razorFormatter;
 
-    public FormattingEngine() : this(new CSharpRoslynFormatter(), new RazorFormatter()) { }
+    public FormattingEngine() : this(new CSharpRoslynFormatter()) { }
 
-    internal FormattingEngine(CSharpRoslynFormatter csharpFormatter, RazorFormatter razorFormatter)
+    internal FormattingEngine(CSharpRoslynFormatter csharpFormatter)
     {
         _csharpFormatter = csharpFormatter;
-        _razorFormatter = razorFormatter;
+        _razorFormatter = new RazorFormatter(csharpFormatter);
     }
 
     public async Task<FormattingResult> FormatAsync(
@@ -47,13 +47,17 @@ public sealed class FormattingEngine
                 var razorOptions = RazorFormattingOptionsResolver.Resolve(
                     request.ResolvedEditorConfig,
                     request.EditorFallback);
-                return _razorFormatter.Format(
+                var razorCSharpOptions = CSharpFormattingOptionsResolver.Resolve(
+                    request.ResolvedEditorConfig,
+                    request.EditorFallback);
+                return await _razorFormatter.FormatAsync(
                     request.Source,
                     request.Language == FormattingLanguage.Razor
                         ? RazorDocumentKind.Component
                         : RazorDocumentKind.Cshtml,
                     razorOptions,
-                    cancellationToken);
+                    razorCSharpOptions,
+                    cancellationToken).ConfigureAwait(false);
 
             default:
                 throw new FormattingException(

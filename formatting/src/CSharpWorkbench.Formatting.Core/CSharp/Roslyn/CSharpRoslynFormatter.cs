@@ -62,6 +62,13 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
 
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview, DocumentationMode.Parse, SourceCodeKind.Regular);
         var syntaxTree = Parse(parserSource, parseOptions, cancellationToken);
+        if (request.Kind == CSharpFormattingKind.Snippet &&
+            syntaxTree.GetDiagnostics(cancellationToken).Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
+        {
+            throw new FormattingException(
+                FormattingErrorCode.ParseFailure,
+                "The C# snippet contains syntax errors.");
+        }
         var root = await syntaxTree.GetRootAsync(cancellationToken).ConfigureAwait(false);
 
         using var workspace = new AdhocWorkspace();
@@ -104,7 +111,11 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
                 cancellationToken).ConfigureAwait(false),
             CSharpFormattingKind.Snippet => CreateReplacementResult(
                 request.Source,
-                snippetContext!.Extract(formattedText.ToString(), request.Options.Indentation),
+                CSharpSyntaxLineWrapper.WrapSnippet(
+                    snippetContext!.Extract(formattedText.ToString(), request.Options.Indentation),
+                    request.SnippetKind!.Value,
+                    request.Options,
+                    cancellationToken),
                 new CSharpTextSpan(0, request.Source.Length)),
             _ => CSharpFormattingResult.Unchanged,
         };

@@ -216,6 +216,61 @@ public sealed class CSharpRoslynFormatterTests
         Assert.DoesNotContain("CSharpWorkbenchMethod", formatted, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("left+right", "left + right")]
+    [InlineData("a?b:c", "a ? b : c")]
+    [InlineData("item is { Enabled:true }", "item is { Enabled: true }")]
+    [InlineData("new Item{Name=\"A\"}", "new Item { Name = \"A\" }")]
+    [InlineData("[1,2,3]", "[1, 2, 3]")]
+    [InlineData("()=>Save(item)", "() => Save(item)")]
+    [InlineData("nameof(Store.Name)", "nameof(Store.Name)")]
+    public async Task FormatExpressionSnippetDoesNotLeakSyntheticField(string source, string expected)
+    {
+        var formatted = await FormatAsync(new CSharpFormattingRequest(
+            source,
+            CSharpFormattingKind.Snippet,
+            CreateOptions(),
+            snippetKind: CSharpSnippetKind.Expression));
+
+        Assert.Equal(expected, formatted);
+        Assert.DoesNotContain("__Value", formatted, StringComparison.Ordinal);
+        Assert.DoesNotContain("CSharpWorkbenchSnippet", formatted, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(CSharpSnippetKind.Expression, "left+")]
+    [InlineData(CSharpSnippetKind.Statements, "if (")]
+    [InlineData(CSharpSnippetKind.TypeMembers, "void M(")]
+    public async Task InvalidSnippetReturnsParseFailure(CSharpSnippetKind kind, string source)
+    {
+        var exception = await Assert.ThrowsAsync<FormattingException>(() =>
+            new CSharpRoslynFormatter().FormatAsync(new CSharpFormattingRequest(
+                source,
+                CSharpFormattingKind.Snippet,
+                CreateOptions(),
+                snippetKind: kind)));
+
+        Assert.Equal(FormattingErrorCode.ParseFailure, exception.Code);
+    }
+
+    [Theory]
+    [InlineData(CSharpSnippetKind.TypeMembers, "void M(){Call(first,second,third);}")]
+    [InlineData(CSharpSnippetKind.Statements, "Call(first,second,third);")]
+    public async Task StatementLikeSnippetsApplyMaxLineLength(CSharpSnippetKind kind, string source)
+    {
+        var options = CreateOptions();
+        options.MaxLineLength = 20;
+        options.CSharpWrapping.PreserveSingleLineBlocks = false;
+        var formatted = await FormatAsync(new CSharpFormattingRequest(
+            source,
+            CSharpFormattingKind.Snippet,
+            options,
+            snippetKind: kind));
+
+        Assert.Contains("\n", formatted, StringComparison.Ordinal);
+        Assert.DoesNotContain("CSharpWorkbenchSnippet", formatted, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task FormatDocumentAppliesFileLevelTextOptions()
     {
@@ -347,6 +402,9 @@ public sealed class CSharpRoslynFormatterTests
         Assert.True(info.Capabilities.FormatDocument);
         Assert.True(info.Capabilities.FormatRange);
         Assert.True(info.Capabilities.FormatSnippet);
+        Assert.Equal(
+            new[] { CSharpSnippetKind.TypeMembers, CSharpSnippetKind.Statements, CSharpSnippetKind.Expression },
+            info.Capabilities.SnippetKinds);
         Assert.True(info.Capabilities.SupportsMaxLineLength);
         Assert.True(info.Capabilities.SupportsIndependentEventIndexerAndLocalFunctionBraceContexts);
         Assert.True(info.Capabilities.PreservesSourceOnFailure);

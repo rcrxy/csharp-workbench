@@ -35,6 +35,9 @@ internal static class RazorFormattingOptionsResolver
         options.TrimTrailingWhitespace = ParseBoolean(Get(properties, "trim_trailing_whitespace"))
             ?? fallback.TrimTrailingWhitespace
             ?? options.TrimTrailingWhitespace;
+        options.BlankLinesAroundFunctions = ParseExplicitHtmlNonNegativeInteger(
+            properties,
+            "html_blank_lines_around_razor_functions");
 
         var markup = options.Markup;
         markup.SpacesAroundAttributeEquals = ResolveHtmlBoolean(
@@ -117,6 +120,13 @@ internal static class RazorFormattingOptionsResolver
         bool defaultValue)
     {
         return ParseBoolean(GetHtml(properties, key)) ?? defaultValue;
+    }
+
+    private static int? ParseExplicitHtmlNonNegativeInteger(
+        IReadOnlyDictionary<string, string> properties,
+        string key)
+    {
+        return ParseNonNegativeInteger(GetHtml(properties, key));
     }
 
     private static T ResolveHtmlEnum<T>(
