@@ -31,13 +31,49 @@ internal readonly struct RazorSourceSpan
     public int End => checked(Start + Length);
 }
 
-internal sealed class RazorRegion(RazorRegionKind kind, RazorSourceSpan span, string? name = null)
+internal sealed class RazorAttributeMetadata(
+    RazorSourceSpan span,
+    RazorSourceSpan nameSpan,
+    RazorSourceSpan? equalsSpan,
+    RazorSourceSpan? valueSpan)
+{
+    public RazorSourceSpan Span { get; } = span;
+
+    public RazorSourceSpan NameSpan { get; } = nameSpan;
+
+    public RazorSourceSpan? EqualsSpan { get; } = equalsSpan;
+
+    public RazorSourceSpan? ValueSpan { get; } = valueSpan;
+}
+
+internal sealed class RazorTagMetadata(
+    RazorSourceSpan nameSpan,
+    IReadOnlyList<RazorAttributeMetadata> attributes,
+    bool attributesReliable,
+    bool isSelfClosingSyntax)
+{
+    public RazorSourceSpan NameSpan { get; } = nameSpan;
+
+    public IReadOnlyList<RazorAttributeMetadata> Attributes { get; } = attributes;
+
+    public bool AttributesReliable { get; } = attributesReliable;
+
+    public bool IsSelfClosingSyntax { get; } = isSelfClosingSyntax;
+}
+
+internal sealed class RazorRegion(
+    RazorRegionKind kind,
+    RazorSourceSpan span,
+    string? name = null,
+    RazorTagMetadata? tag = null)
 {
     public RazorRegionKind Kind { get; } = kind;
 
     public RazorSourceSpan Span { get; } = span;
 
     public string? Name { get; } = name;
+
+    public RazorTagMetadata? Tag { get; } = tag;
 }
 
 internal sealed class RazorDocumentModel(bool isReliable, IReadOnlyList<RazorRegion> regions)

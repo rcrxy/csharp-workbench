@@ -11,7 +11,7 @@ internal enum RazorDocumentKind
 internal sealed class RazorFormatter
 {
     private readonly RazorDocumentScanner _scanner = new();
-    private readonly RazorBasicLayoutFormatter _layoutFormatter = new();
+    private readonly RazorMarkupFormatter _markupFormatter = new();
 
     public FormattingResult Format(
         string source,
@@ -24,7 +24,7 @@ internal sealed class RazorFormatter
         var formattingSource = hasBom ? source.Substring(1) : source;
         var document = _scanner.Scan(formattingSource, kind, cancellationToken);
         var formatted = document.IsReliable
-            ? _layoutFormatter.Format(formattingSource, document, options, cancellationToken)
+            ? _markupFormatter.Format(formattingSource, document, options, cancellationToken)
             : formattingSource;
         var normalized = NormalizeDocument(formatted, options);
         if (hasBom)

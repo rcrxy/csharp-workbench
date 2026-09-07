@@ -86,7 +86,8 @@ internal sealed class RazorDocumentScanner
                     tag.IsSelfClosing || isVoid ? RazorRegionKind.SelfClosingTag : RazorRegionKind.StartTag,
                     cursor,
                     tag.End - cursor,
-                    tag.Name);
+                    tag.Name,
+                    tag.Metadata);
                 cursor = tag.End;
 
                 if (!tag.IsSelfClosing && !isVoid)
@@ -236,6 +237,7 @@ internal sealed class RazorDocumentScanner
         while (cursor < source.Length && IsTagNamePart(source[cursor]))
             cursor++;
         var name = source.Substring(nameStart, cursor - nameStart);
+        var nameEnd = cursor;
 
         while (cursor < source.Length)
         {
@@ -245,7 +247,11 @@ internal sealed class RazorDocumentScanner
                 var slash = cursor - 1;
                 while (slash >= start && char.IsWhiteSpace(source[slash]))
                     slash--;
-                result = new TagScanResult(name, cursor + 1, isClosing, slash >= start && source[slash] == '/', false);
+                var isSelfClosing = slash >= start && source[slash] == '/';
+                var metadata = isClosing
+                    ? null
+                    : ParseTagMetadata(source, nameStart, nameEnd, cursor, isSelfClosing);
+                result = new TagScanResult(name, cursor + 1, isClosing, isSelfClosing, false, metadata);
                 return true;
             }
 
@@ -276,6 +282,121 @@ internal sealed class RazorDocumentScanner
         }
 
         return false;
+    }
+
+    private static RazorTagMetadata ParseTagMetadata(
+        string source,
+        int nameStart,
+        int nameEnd,
+        int tagClose,
+        bool isSelfClosing)
+    {
+        var attributes = new List<RazorAttributeMetadata>();
+        var cursor = nameEnd;
+        var contentEnd = tagClose;
+        if (isSelfClosing)
+        {
+            contentEnd--;
+            while (contentEnd > nameEnd && char.IsWhiteSpace(source[contentEnd - 1]))
+                contentEnd--;
+        }
+
+        while (cursor < contentEnd)
+        {
+            while (cursor < contentEnd && char.IsWhiteSpace(source[cursor]))
+                cursor++;
+            if (cursor >= contentEnd)
+                break;
+
+            var attributeStart = cursor;
+            var attributeNameStart = cursor;
+            while (cursor < contentEnd && !char.IsWhiteSpace(source[cursor]) &&
+                source[cursor] != '=' && source[cursor] != '>' && source[cursor] != '/')
+            {
+                cursor++;
+            }
+            if (cursor == attributeNameStart)
+                return new RazorTagMetadata(
+                    new RazorSourceSpan(nameStart, nameEnd - nameStart),
+                    attributes,
+                    false,
+                    isSelfClosing);
+
+            var nameSpan = new RazorSourceSpan(attributeNameStart, cursor - attributeNameStart);
+            while (cursor < contentEnd && char.IsWhiteSpace(source[cursor]))
+                cursor++;
+
+            RazorSourceSpan? equalsSpan = null;
+            RazorSourceSpan? valueSpan = null;
+            if (cursor < contentEnd && source[cursor] == '=')
+            {
+                equalsSpan = new RazorSourceSpan(cursor, 1);
+                cursor++;
+                while (cursor < contentEnd && char.IsWhiteSpace(source[cursor]))
+                    cursor++;
+                if (cursor >= contentEnd)
+                    return new RazorTagMetadata(
+                        new RazorSourceSpan(nameStart, nameEnd - nameStart),
+                        attributes,
+                        false,
+                        isSelfClosing);
+
+                var valueStart = cursor;
+                if (source[cursor] == '"' || source[cursor] == '\'')
+                {
+                    var quote = source[cursor++];
+                    var closed = false;
+                    while (cursor < contentEnd)
+                    {
+                        if (source[cursor] == '@' && TryScanRazorExpression(source, cursor, out var expressionEnd) &&
+                            expressionEnd <= contentEnd)
+                        {
+                            cursor = expressionEnd;
+                            continue;
+                        }
+                        if (source[cursor] == quote)
+                        {
+                            cursor++;
+                            closed = true;
+                            break;
+                        }
+                        cursor++;
+                    }
+                    if (!closed)
+                        return new RazorTagMetadata(
+                            new RazorSourceSpan(nameStart, nameEnd - nameStart),
+                            attributes,
+                            false,
+                            isSelfClosing);
+                }
+                else
+                {
+                    while (cursor < contentEnd && !char.IsWhiteSpace(source[cursor]))
+                    {
+                        if (source[cursor] == '@' && TryScanRazorExpression(source, cursor, out var expressionEnd) &&
+                            expressionEnd <= contentEnd)
+                        {
+                            cursor = expressionEnd;
+                            continue;
+                        }
+                        cursor++;
+                    }
+                }
+                valueSpan = new RazorSourceSpan(valueStart, cursor - valueStart);
+            }
+
+            attributes.Add(new RazorAttributeMetadata(
+                new RazorSourceSpan(attributeStart, cursor - attributeStart),
+                nameSpan,
+                equalsSpan,
+                valueSpan));
+        }
+
+        return new RazorTagMetadata(
+            new RazorSourceSpan(nameStart, nameEnd - nameStart),
+            attributes,
+            true,
+            isSelfClosing);
     }
 
     private static bool TryScanCodeBlock(string source, int start, out int end)
@@ -525,10 +646,11 @@ internal sealed class RazorDocumentScanner
         RazorRegionKind kind,
         int start,
         int length,
-        string? name = null)
+        string? name = null,
+        RazorTagMetadata? tag = null)
     {
         if (length > 0)
-            regions.Add(new RazorRegion(kind, new RazorSourceSpan(start, length), name));
+            regions.Add(new RazorRegion(kind, new RazorSourceSpan(start, length), name, tag));
     }
 
     private static RazorDocumentModel Unreliable(IReadOnlyList<RazorRegion> regions) => new(false, regions);
@@ -538,12 +660,14 @@ internal sealed class RazorDocumentScanner
         int end,
         bool isClosing,
         bool isSelfClosing,
-        bool isDeclaration)
+        bool isDeclaration,
+        RazorTagMetadata? metadata = null)
     {
         public string Name { get; } = name;
         public int End { get; } = end;
         public bool IsClosing { get; } = isClosing;
         public bool IsSelfClosing { get; } = isSelfClosing;
         public bool IsDeclaration { get; } = isDeclaration;
+        public RazorTagMetadata? Metadata { get; } = metadata;
     }
 }

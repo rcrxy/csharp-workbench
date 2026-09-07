@@ -29,7 +29,7 @@ public sealed class RazorFormatterTests
     }
 
     [Fact]
-    public async Task PreservesMultilineAttributeLayoutWhileRebasingTag()
+    public async Task AppliesDefaultMarkupRulesToMultilineTag()
     {
         var source = string.Join("\n", new[]
         {
@@ -48,8 +48,7 @@ public sealed class RazorFormatterTests
         Assert.Equal(string.Join("\n", new[]
         {
             "<div>",
-            "  <RadzenDataGrid AllowFiltering = \"true\"",
-            "                  Data=\"@items\">",
+            "  <RadzenDataGrid AllowFiltering=\"true\" Data=\"@items\">",
             "  </RadzenDataGrid>",
             "</div>",
         }), formatted);
