@@ -115,10 +115,30 @@ public sealed class FormattingEngine
                                 change.NewText)).ToArray());
                 }
 
+            case FormattingLanguage.Razor:
+            case FormattingLanguage.Cshtml:
+                {
+                    var razorOptions = RazorFormattingOptionsResolver.Resolve(
+                        resolvedEditorConfig ?? new Dictionary<string, string>(),
+                        editorFallback);
+                    var csharpOptions = CSharpFormattingOptionsResolver.Resolve(
+                        resolvedEditorConfig ?? new Dictionary<string, string>(),
+                        editorFallback);
+                    return await _razorFormatter.FormatRangeAsync(
+                        source,
+                        language == FormattingLanguage.Razor
+                            ? RazorDocumentKind.Component
+                            : RazorDocumentKind.Cshtml,
+                        new RazorSourceSpan(range.Start, range.Length),
+                        razorOptions,
+                        csharpOptions,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
             default:
                 throw new FormattingException(
                     FormattingErrorCode.UnsupportedLanguage,
-                    $"Range formatting is only supported for C# in this implementation: {language}.");
+                        $"Unsupported formatting language: {language}.");
         }
     }
 }

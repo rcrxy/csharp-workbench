@@ -6,6 +6,54 @@ namespace CSharpWorkbench.Formatting.Core.Razor;
 
 internal sealed class RazorEmbeddedCSharpFormatter(CSharpRoslynFormatter csharpFormatter)
 {
+    public async Task<RazorSourceEdit?> FormatRangeAsync(
+        string source,
+        RazorDocumentModel document,
+        RazorRangeFormattingTarget target,
+        CSharpFormattingOptions options,
+        CancellationToken cancellationToken)
+    {
+        var region = document.Regions[target.StartRegionIndex];
+        if (region.CodeBlock is not null &&
+            target.CSharpContainerSpan is RazorSourceSpan containerSpan &&
+            target.CSharpSnippetKind is CSharpSnippetKind snippetKind)
+        {
+            return await FormatCodeBlockRangeAsync(
+                source,
+                target.EffectiveSpan,
+                containerSpan,
+                snippetKind,
+                options,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        var edits = new List<RazorSourceEdit>();
+        if (region.Control is RazorControlMetadata control &&
+            control.CSharpHeaderSpan is RazorSourceSpan headerSpan)
+        {
+            await TryAddControlHeaderEditAsync(
+                source,
+                control,
+                headerSpan,
+                options,
+                edits,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else if (target.CSharpSnippetKind is CSharpSnippetKind targetSnippetKind)
+        {
+            await TryAddSnippetEditAsync(
+                source,
+                target.EffectiveSpan,
+                targetSnippetKind,
+                options,
+                targetSnippetKind == CSharpSnippetKind.Expression,
+                edits,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return edits.Count == 0 ? null : edits[0];
+    }
+
     public async Task<IReadOnlyList<RazorSourceEdit>> FormatAsync(
         string source,
         RazorDocumentModel document,
@@ -66,7 +114,10 @@ internal sealed class RazorEmbeddedCSharpFormatter(CSharpRoslynFormatter csharpF
                 foreach (var attribute in tag.Attributes)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (TryGetAttributeCSharpSpan(source, attribute, out var attributeSpan))
+                    if (RazorEmbeddedCSharpSpanResolver.TryGetAttributeCSharpSpan(
+                        source,
+                        attribute,
+                        out var attributeSpan))
                     {
                         await TryAddSnippetEditAsync(
                             source,
@@ -82,6 +133,87 @@ internal sealed class RazorEmbeddedCSharpFormatter(CSharpRoslynFormatter csharpF
         }
 
         return ValidateAndOrder(edits);
+    }
+
+    private async Task<RazorSourceEdit?> FormatCodeBlockRangeAsync(
+        string source,
+        RazorSourceSpan requestedSpan,
+        RazorSourceSpan bodySpan,
+        CSharpSnippetKind snippetKind,
+        CSharpFormattingOptions options,
+        CancellationToken cancellationToken)
+    {
+        var body = source.Substring(bodySpan.Start, bodySpan.Length);
+        var snippetRequest = new CSharpFormattingRequest(
+            body,
+            CSharpFormattingKind.Snippet,
+            options,
+            snippetKind: snippetKind);
+        var context = SnippetFormattingContext.Create(snippetRequest);
+        var localStart = requestedSpan.Start - bodySpan.Start;
+        var parserRange = new CSharpTextSpan(
+            context.FormattingSpan.Start + localStart,
+            requestedSpan.Length);
+
+        try
+        {
+            var result = await csharpFormatter.FormatAsync(
+                new CSharpFormattingRequest(
+                    context.ParserSource,
+                    CSharpFormattingKind.Range,
+                    options,
+                    parserRange),
+                cancellationToken).ConfigureAwait(false);
+            if (result.Changes.Count == 0)
+            {
+                return null;
+            }
+
+            if (result.Changes.Any(change =>
+                change.Span.Start < context.FormattingSpan.Start ||
+                change.Span.End > context.FormattingSpan.End))
+            {
+                return null;
+            }
+
+            var formattedParserSource = ApplyChanges(context.ParserSource, result.Changes);
+            var formattedBody = context.Extract(formattedParserSource, options.Indentation);
+            return CreateMinimalEdit(body, formattedBody, bodySpan.Start);
+        }
+        catch (FormattingException exception) when (
+            exception.Code is FormattingErrorCode.ParseFailure or FormattingErrorCode.FormattingFailure)
+        {
+            return null;
+        }
+    }
+
+    private static RazorSourceEdit? CreateMinimalEdit(string original, string formatted, int sourceStart)
+    {
+        if (string.Equals(original, formatted, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var prefixLength = 0;
+        var sharedLength = Math.Min(original.Length, formatted.Length);
+        while (prefixLength < sharedLength && original[prefixLength] == formatted[prefixLength])
+        {
+            prefixLength++;
+        }
+
+        var suffixLength = 0;
+        while (suffixLength < original.Length - prefixLength &&
+            suffixLength < formatted.Length - prefixLength &&
+            original[original.Length - suffixLength - 1] == formatted[formatted.Length - suffixLength - 1])
+        {
+            suffixLength++;
+        }
+
+        return new RazorSourceEdit(
+            new RazorSourceSpan(
+                sourceStart + prefixLength,
+                original.Length - prefixLength - suffixLength),
+            formatted.Substring(prefixLength, formatted.Length - prefixLength - suffixLength));
     }
 
     private async Task TryAddControlHeaderEditAsync(
@@ -200,44 +332,6 @@ internal sealed class RazorEmbeddedCSharpFormatter(CSharpRoslynFormatter csharpF
             exception.Code is FormattingErrorCode.ParseFailure or FormattingErrorCode.FormattingFailure)
         {
         }
-    }
-
-    private static bool TryGetAttributeCSharpSpan(
-        string source,
-        RazorAttributeMetadata attribute,
-        out RazorSourceSpan span)
-    {
-        span = default;
-        if (attribute.ValueSpan is not RazorSourceSpan valueSpan || valueSpan.Length == 0)
-            return false;
-
-        var name = source.Substring(attribute.NameSpan.Start, attribute.NameSpan.Length);
-        var valueStart = valueSpan.Start;
-        var valueEnd = valueSpan.End;
-        if (source[valueStart] is '"' or '\'')
-        {
-            valueStart++;
-            valueEnd--;
-        }
-        if (valueEnd <= valueStart)
-            return false;
-
-        if (source[valueStart] == '@')
-        {
-            if (valueStart + 1 < valueEnd && source[valueStart + 1] == '(' && source[valueEnd - 1] == ')')
-                span = new RazorSourceSpan(valueStart + 2, valueEnd - valueStart - 3);
-            else
-                span = new RazorSourceSpan(valueStart + 1, valueEnd - valueStart - 1);
-            return span.Length > 0;
-        }
-
-        if (name.StartsWith("@", StringComparison.Ordinal))
-        {
-            span = new RazorSourceSpan(valueStart, valueEnd - valueStart);
-            return true;
-        }
-
-        return false;
     }
 
     private static bool HasDifferentLineBreakShape(string original, string formatted)

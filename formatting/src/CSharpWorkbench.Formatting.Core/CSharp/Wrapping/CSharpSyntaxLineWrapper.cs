@@ -25,6 +25,24 @@ internal static class CSharpSyntaxLineWrapper
         CSharpFormattingOptions options,
         CancellationToken cancellationToken)
     {
+        return WrapCore(source, options, null, cancellationToken);
+    }
+
+    public static string WrapRange(
+        string source,
+        TextSpan formattingSpan,
+        CSharpFormattingOptions options,
+        CancellationToken cancellationToken)
+    {
+        return WrapCore(source, options, formattingSpan, cancellationToken);
+    }
+
+    private static string WrapCore(
+        string source,
+        CSharpFormattingOptions options,
+        TextSpan? formattingSpan,
+        CancellationToken cancellationToken)
+    {
         if (options.MaxLineLength is not int maxLineLength)
         {
             return source;
@@ -36,7 +54,13 @@ internal static class CSharpSyntaxLineWrapper
             cancellationToken: cancellationToken);
         var root = tree.GetRoot(cancellationToken);
         var candidates = CollectCandidates(root, source, options, cancellationToken);
-        var changes = PlanChanges(source, candidates, maxLineLength, options, cancellationToken);
+        var changes = PlanChanges(
+            source,
+            candidates,
+            maxLineLength,
+            options,
+            formattingSpan,
+            cancellationToken);
         return changes.Count == 0
             ? source
             : SourceText.From(source).WithChanges(changes).ToString();
@@ -194,6 +218,7 @@ internal static class CSharpSyntaxLineWrapper
         IReadOnlyList<BreakCandidate> candidates,
         int maxLineLength,
         CSharpFormattingOptions options,
+        TextSpan? formattingSpan,
         CancellationToken cancellationToken)
     {
         var changes = new List<TextChange>();
@@ -204,6 +229,7 @@ internal static class CSharpSyntaxLineWrapper
             var lineEnd = FindLineEnd(source, lineStart);
             var lineCandidates = candidates
                 .Where(candidate => candidate.SplitPosition > lineStart && candidate.SplitPosition < lineEnd)
+                .Where(candidate => formattingSpan is null || Contains(formattingSpan.Value, candidate.WhitespaceSpan))
                 .OrderBy(candidate => candidate.SplitPosition)
                 .ToArray();
             var segmentStart = lineStart;
@@ -241,6 +267,7 @@ internal static class CSharpSyntaxLineWrapper
                     selected.WhitespaceSpan,
                     options.LineEnding + continuationIndent));
                 if (selected.InitializerBraceWhitespace is TextSpan braceWhitespace &&
+                    (formattingSpan is null || Contains(formattingSpan.Value, braceWhitespace)) &&
                     !changes.Any(change => change.Span == braceWhitespace))
                 {
                     changes.Add(new TextChange(
@@ -249,6 +276,7 @@ internal static class CSharpSyntaxLineWrapper
                 }
 
                 if (selected.InitializerContentWhitespace is TextSpan contentWhitespace &&
+                    (formattingSpan is null || Contains(formattingSpan.Value, contentWhitespace)) &&
                     !changes.Any(change => change.Span == contentWhitespace))
                 {
                     changes.Add(new TextChange(
@@ -257,6 +285,7 @@ internal static class CSharpSyntaxLineWrapper
                 }
 
                 if (selected.InitializerClosingWhitespace is TextSpan closingWhitespace &&
+                    (formattingSpan is null || Contains(formattingSpan.Value, closingWhitespace)) &&
                     !changes.Any(change => change.Span == closingWhitespace))
                 {
                     changes.Add(new TextChange(
@@ -277,6 +306,11 @@ internal static class CSharpSyntaxLineWrapper
         }
 
         return changes.OrderBy(change => change.Span.Start).ToArray();
+    }
+
+    private static bool Contains(TextSpan outer, TextSpan inner)
+    {
+        return inner.Start >= outer.Start && inner.End <= outer.End;
     }
 
     private static bool TryGetHorizontalWhitespace(string source, int start, int end, out string whitespace)

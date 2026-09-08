@@ -15,6 +15,48 @@ public sealed class RazorFormatterTests
         Assert.Equal("<div>\n    <span>Value</span>\n</div>", formatted);
     }
 
+    [Theory]
+    [InlineData(FormattingLanguage.Razor)]
+    [InlineData(FormattingLanguage.Cshtml)]
+    public async Task FormattingEngineDispatchesRazorRangeForInlineExpression(FormattingLanguage language)
+    {
+        const string source = "<span>@(left+right)</span>";
+        const string selected = "left+right";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            language,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+        var change = Assert.Single(result.Changes);
+
+        Assert.Equal(start, change.Span.Start);
+        Assert.Equal(selected.Length, change.Span.Length);
+        Assert.Equal("left + right", change.NewText);
+    }
+
+    [Fact]
+    public async Task FormatsOnlySelectedMethodInsideCodeBlock()
+    {
+        const string source = "@code {\nint first=1;\nint second=2;\nvoid Run(){Call(first,second);}\n}";
+        const string selected = "void Run(){Call(first,second);}";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length),
+            new Dictionary<string, string>
+            {
+                ["csharp_preserve_single_line_blocks"] = "false",
+                ["csharp_preserve_single_line_statements"] = "false",
+            });
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Contains("int first=1;", formatted, StringComparison.Ordinal);
+        Assert.Contains("int second=2;", formatted, StringComparison.Ordinal);
+        Assert.Contains("void Run()\n{\n    Call(first, second);\n}", formatted, StringComparison.Ordinal);
+        Assert.DoesNotContain("CSharpWorkbenchSnippet", formatted, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task FormatsNestedComponentsAndRemainsIdempotent()
     {
@@ -202,5 +244,16 @@ public sealed class RazorFormatterTests
         Assert.Equal(0, change.Span.Start);
         Assert.Equal(source.Length, change.Span.Length);
         return change.NewText;
+    }
+
+    private static string ApplyChanges(string source, IReadOnlyList<FormattingTextChange> changes)
+    {
+        foreach (var change in changes.OrderByDescending(change => change.Span.Start))
+        {
+            source = source.Remove(change.Span.Start, change.Span.Length)
+                .Insert(change.Span.Start, change.NewText);
+        }
+
+        return source;
     }
 }

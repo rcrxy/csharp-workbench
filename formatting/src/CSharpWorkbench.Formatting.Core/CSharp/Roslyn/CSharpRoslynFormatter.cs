@@ -50,16 +50,6 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
         ? SnippetFormattingContext.Create(request)
         : null;
         var parserSource = snippetContext?.ParserSource ?? request.Source;
-        var formattingSpan = request.Kind switch
-        {
-            CSharpFormattingKind.Document => new TextSpan(0, parserSource.Length),
-            CSharpFormattingKind.Range => ToRoslynSpan(request.Span!.Value),
-            CSharpFormattingKind.Snippet => snippetContext!.FormattingSpan,
-            _ => throw new FormattingException(
-                FormattingErrorCode.InvalidRequest,
-                $"Unsupported formatting kind: {request.Kind}."),
-        };
-
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview, DocumentationMode.Parse, SourceCodeKind.Regular);
         var syntaxTree = Parse(parserSource, parseOptions, cancellationToken);
         if (request.Kind == CSharpFormattingKind.Snippet &&
@@ -70,6 +60,32 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
                 "The C# snippet contains syntax errors.");
         }
         var root = await syntaxTree.GetRootAsync(cancellationToken).ConfigureAwait(false);
+        var formattingSpan = request.Kind switch
+        {
+            CSharpFormattingKind.Document => new TextSpan(0, parserSource.Length),
+            CSharpFormattingKind.Snippet => snippetContext!.FormattingSpan,
+            CSharpFormattingKind.Range when CSharpRangeFormattingSpanResolver.TryResolve(
+                root,
+                parserSource,
+                ToRoslynSpan(request.Span!.Value),
+                out var effectiveSpan) => effectiveSpan,
+            CSharpFormattingKind.Range => default,
+            _ => throw new FormattingException(
+                FormattingErrorCode.InvalidRequest,
+                $"Unsupported formatting kind: {request.Kind}."),
+        };
+        if (request.Kind == CSharpFormattingKind.Range && formattingSpan.IsEmpty)
+        {
+            return CSharpFormattingResult.Unchanged;
+        }
+        if (request.Kind == CSharpFormattingKind.Range &&
+            syntaxTree.GetDiagnostics(cancellationToken).Any(diagnostic =>
+                diagnostic.Severity == DiagnosticSeverity.Error &&
+                diagnostic.Location.IsInSource &&
+                diagnostic.Location.SourceSpan.IntersectsWith(formattingSpan)))
+        {
+            return CSharpFormattingResult.Unchanged;
+        }
 
         using var workspace = new AdhocWorkspace();
         var project = workspace.AddProject(
@@ -90,12 +106,30 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
         var formattedDocument = request.Kind == CSharpFormattingKind.Range
         ? await Formatter.FormatAsync(ruleDocument, formattingSpan, optionSet, cancellationToken).ConfigureAwait(false)
         : await Formatter.FormatAsync(ruleDocument, optionSet, cancellationToken).ConfigureAwait(false);
-        formattedDocument = ApplyIndependentOpenBraceCorrection(formattedDocument, request.Options, cancellationToken);
+        formattedDocument = ApplyIndependentOpenBraceCorrection(
+            formattedDocument,
+            request.Options,
+            request.Kind == CSharpFormattingKind.Range ? formattingSpan : (TextSpan?)null,
+            parserSource.Length,
+            cancellationToken);
         var formattedText = await formattedDocument.GetTextAsync(cancellationToken).ConfigureAwait(false);
         if (request.Kind == CSharpFormattingKind.Document)
         {
             formattedText = SourceText.From(
                 CSharpSyntaxLineWrapper.Wrap(formattedText.ToString(), request.Options, cancellationToken));
+        }
+        else if (request.Kind == CSharpFormattingKind.Range)
+        {
+            var currentFormattingSpan = AdjustSpanForLengthChange(
+                formattingSpan,
+                parserSource.Length,
+                formattedText.Length);
+            var wrappedText = CSharpSyntaxLineWrapper.WrapRange(
+                formattedText.ToString(),
+                currentFormattingSpan,
+                request.Options,
+                cancellationToken);
+            formattedDocument = formattedDocument.WithText(SourceText.From(wrappedText));
         }
 
         return request.Kind switch
@@ -106,6 +140,7 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
                 new CSharpTextSpan(0, request.Source.Length)),
             CSharpFormattingKind.Range => await CreateRangeResultAsync(
                 request,
+                formattingSpan,
                 originalDocument,
                 formattedDocument,
                 cancellationToken).ConfigureAwait(false),
@@ -171,11 +206,12 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
 
     private static async Task<CSharpFormattingResult> CreateRangeResultAsync(
         CSharpFormattingRequest request,
+        TextSpan formattingSpan,
         Document originalDocument,
         Document formattedDocument,
         CancellationToken cancellationToken)
     {
-        var targetSpan = request.Span!.Value;
+        var targetSpan = new CSharpTextSpan(formattingSpan.Start, formattingSpan.Length);
         var targetEnd = targetSpan.End;
         var relativeChanges = new List<TextChange>();
         var textChanges = await formattedDocument
@@ -230,6 +266,8 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
     private static Document ApplyIndependentOpenBraceCorrection(
         Document document,
         CSharpFormattingOptions options,
+        TextSpan? formattingSpan,
+        int originalSourceLength,
         CancellationToken cancellationToken)
     {
         if (options.CSharpNewLines.BeforeOpenBrace != CSharpOpenBraceMode.Selected)
@@ -251,6 +289,9 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
                 FormattingErrorCode.FormattingFailure,
                 "Roslyn returned no syntax root for the formatted document.");
         var source = root.ToFullString();
+        var currentFormattingSpan = formattingSpan is TextSpan span
+            ? AdjustSpanForLengthChange(span, originalSourceLength, source.Length)
+            : (TextSpan?)null;
         var tokens = new List<SyntaxToken>();
         foreach (var node in root.DescendantNodes())
         {
@@ -266,6 +307,7 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
             };
 
             if (brace is SyntaxToken token && token.RawKind != 0 &&
+                (currentFormattingSpan is null || Contains(currentFormattingSpan.Value, token.Span)) &&
                 !token.LeadingTrivia.Any(trivia => trivia.IsKind(SyntaxKind.EndOfLineTrivia)))
             {
                 tokens.Add(token);
@@ -280,6 +322,17 @@ public sealed class CSharpRoslynFormatter(IEnumerable<ICSharpWorkbenchFormatting
         var correctedRoot = root.ReplaceTokens(tokens, (original, _) =>
             AddLineBreakBeforeBrace(original, source, options.LineEnding));
         return document.WithSyntaxRoot(correctedRoot);
+    }
+
+    private static TextSpan AdjustSpanForLengthChange(TextSpan span, int originalLength, int currentLength)
+    {
+        var adjustedEnd = Math.Min(currentLength, span.End + currentLength - originalLength);
+        return TextSpan.FromBounds(span.Start, Math.Max(span.Start, adjustedEnd));
+    }
+
+    private static bool Contains(TextSpan outer, TextSpan inner)
+    {
+        return inner.Start >= outer.Start && inner.End <= outer.End;
     }
 
     private static SyntaxToken AddLineBreakBeforeBrace(

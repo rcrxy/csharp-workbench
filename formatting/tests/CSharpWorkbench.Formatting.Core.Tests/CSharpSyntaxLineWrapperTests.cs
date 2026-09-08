@@ -63,7 +63,7 @@ public sealed class CSharpSyntaxLineWrapperTests
     }
 
     [Fact]
-    public async Task DoesNotWrapRangeButWrapsStatementSnippet()
+    public async Task WrapsRangeAndStatementSnippet()
     {
         const string source = "void Run(){var result=firstValue+secondValue+thirdValue+fourthValue;}";
         var options = new Dictionary<string, string> { ["max_line_length"] = "20" };
@@ -85,8 +85,29 @@ public sealed class CSharpSyntaxLineWrapperTests
         var snippetSource = snippetRequest.Source;
         var snippet = ApplyChanges(snippetSource, snippetResult.Changes);
 
-        Assert.DoesNotContain("firstValue\n", range, StringComparison.Ordinal);
+        Assert.Contains("firstValue\n", range, StringComparison.Ordinal);
         Assert.Contains("firstValue\n", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RangeWrappingLeavesOutsideLongLinesUnchanged()
+    {
+        const string outside = "var outside=firstValue+secondValue+thirdValue+fourthValue;";
+        const string selected = "var selected=firstValue+secondValue+thirdValue+fourthValue;";
+        var source = $"class Demo{{void Run(){{{outside}\n{selected}}}}}";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var resolved = CSharpFormattingOptionsResolver.Resolve(
+            new Dictionary<string, string> { ["max_line_length"] = "30" });
+        var result = await new CSharpRoslynFormatter().FormatAsync(
+            new CSharpFormattingRequest(
+                source,
+                CSharpFormattingKind.Range,
+                resolved,
+                new CSharpTextSpan(start, selected.Length)));
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Contains(outside, formatted, StringComparison.Ordinal);
+        Assert.Matches(@"var selected = firstValue\r?\n\s*\+ secondValue", formatted);
     }
 
     [Fact]

@@ -181,6 +181,102 @@ public sealed class CSharpRoslynFormatterTests
         Assert.Equal(6, start);
     }
 
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 3)]
+    public async Task FormatRangeLeavesEmptyOrWhitespaceOnlySelectionUnchanged(int start, int length)
+    {
+        const string source = "    class Demo{}";
+        var request = new CSharpFormattingRequest(
+            source,
+            CSharpFormattingKind.Range,
+            CreateOptions(),
+            new CSharpTextSpan(start, length));
+
+        var result = await new CSharpRoslynFormatter().FormatAsync(request);
+
+        Assert.Empty(result.Changes);
+    }
+
+    [Fact]
+    public async Task FormatRangeIgnoresSyntaxErrorsOutsideEffectiveSpan()
+    {
+        const string source = "class Demo{void Broken( { } void Run(){if(true){Work();}}}";
+        const string selectedSource = "if(true){Work();}";
+        var start = source.IndexOf(selectedSource, StringComparison.Ordinal);
+        var request = new CSharpFormattingRequest(
+            source,
+            CSharpFormattingKind.Range,
+            CreateOptions(),
+            new CSharpTextSpan(start, selectedSource.Length));
+
+        var result = await new CSharpRoslynFormatter().FormatAsync(request);
+
+        Assert.Contains("if (true)", Assert.Single(result.Changes).NewText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FormatRangeLeavesSelectionWithIntersectingSyntaxErrorUnchanged()
+    {
+        const string source = "class Demo{void Run(){if(true {Work();}}}";
+        const string selectedSource = "if(true {Work();}";
+        var start = source.IndexOf(selectedSource, StringComparison.Ordinal);
+        var request = new CSharpFormattingRequest(
+            source,
+            CSharpFormattingKind.Range,
+            CreateOptions(),
+            new CSharpTextSpan(start, selectedSource.Length));
+
+        var result = await new CSharpRoslynFormatter().FormatAsync(request);
+
+        Assert.Empty(result.Changes);
+    }
+
+    [Fact]
+    public async Task FormatRangeExpandsPartialTokensToASafeSyntaxBoundary()
+    {
+        const string source = "class Demo{void Run(){if(true){Work();}}}";
+        const string requestedSource = "f(true){Work";
+        var start = source.IndexOf(requestedSource, StringComparison.Ordinal);
+        var request = new CSharpFormattingRequest(
+            source,
+            CSharpFormattingKind.Range,
+            CreateOptions(),
+            new CSharpTextSpan(start, requestedSource.Length));
+
+        var result = await new CSharpRoslynFormatter().FormatAsync(request);
+        var change = Assert.Single(result.Changes);
+
+        Assert.True(change.Span.Start < start);
+        Assert.True(change.Span.End > start + requestedSource.Length);
+        Assert.Contains("if (true)", change.NewText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FormatRangeAppliesIndependentBraceCorrectionOnlyInsideEffectiveSpan()
+    {
+        const string first = "void First(){}";
+        const string selected = "void Second(){}";
+        var source = $"class Demo{{void Run(){{{first}{selected}}}}}";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var options = CreateOptions();
+        options.CSharpNewLines.BeforeOpenBrace = CSharpOpenBraceMode.Selected;
+        options.CSharpNewLines.OpenBraceContexts = new[]
+        {
+            CSharpOpenBraceContext.LocalFunctions,
+        };
+        var result = await new CSharpRoslynFormatter().FormatAsync(
+            new CSharpFormattingRequest(
+                source,
+                CSharpFormattingKind.Range,
+                options,
+                new CSharpTextSpan(start, selected.Length)));
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Contains(first, formatted, StringComparison.Ordinal);
+        Assert.Matches(@"void Second\(\)\r?\n\s*\{", formatted);
+    }
+
     [Fact]
     public async Task FormatTypeMembersSnippetDoesNotLeakWrapperOrWrapperIndentation()
     {
