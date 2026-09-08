@@ -13,9 +13,9 @@ function createClient(mode = "normal", options: Record<string, number> = {}): Fo
             command: execPath,
             args: [fixture, mode],
         },
-        handshakeTimeoutMs: options.handshakeTimeoutMs ?? 500,
-        requestTimeoutMs: options.requestTimeoutMs ?? 500,
-        shutdownTimeoutMs: options.shutdownTimeoutMs ?? 500,
+        handshakeTimeoutMs: options.handshakeTimeoutMs ?? 1_500,
+        requestTimeoutMs: options.requestTimeoutMs ?? 1_500,
+        shutdownTimeoutMs: options.shutdownTimeoutMs ?? 1_000,
         log: {
             info: () => undefined,
             warn: () => undefined,
@@ -79,6 +79,26 @@ describe("FormatterClient", () => {
         );
         assert.equal(client.status, "stopped");
         assert.deepEqual(await client.formatDocument(request), { changes: [] });
+        await client.dispose();
+    });
+
+    it("rejects capability mismatches before sending the business request", async () => {
+        const client = createClient("no-format-document");
+
+        await assert.rejects(
+            client.formatDocument(request),
+            (error: unknown) => error instanceof FormatterClientError && error.code === "capabilityMismatch",
+        );
+        await client.dispose();
+    });
+
+    it("rejects unsupported language requests before sending the business request", async () => {
+        const client = createClient();
+
+        await assert.rejects(
+            client.formatDocument({ ...request, language: "razor" }),
+            (error: unknown) => error instanceof FormatterClientError && error.code === "capabilityMismatch",
+        );
         await client.dispose();
     });
 

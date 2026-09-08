@@ -60,6 +60,7 @@ export class FormatterClient {
             throw this.cancelledError();
         }
 
+        this.assertRequestCapabilities(request.language);
         return this.sendRequest<FormatterFormatDocumentResult>(
             "formatDocument",
             request,
@@ -115,6 +116,12 @@ export class FormatterClient {
                 stdio: ["pipe", "pipe", "pipe"],
                 shell: false,
                 windowsHide: true,
+                env: {
+                    ...process.env,
+                    NODE_OPTIONS: "",
+                    NODE_INSPECT: "",
+                    NODE_INSPECT_RESUME_ON_START: "1",
+                },
             });
         } catch (error) {
             throw this.handleStartupFailure(toError(error));
@@ -388,6 +395,27 @@ export class FormatterClient {
             clearTimeout(pending.timer);
             pending.abortCleanup?.();
             pending.reject(error);
+        }
+    }
+
+    private assertRequestCapabilities(language: string): void {
+        const info = this.infoValue;
+        if (!info) {
+            throw new FormatterClientError("handshakeFailure", "Formatter capability information is unavailable.");
+        }
+
+        if (!info.capabilities.formatDocument) {
+            throw new FormatterClientError(
+                "capabilityMismatch",
+                `Formatter does not advertise document formatting support for ${language}.`,
+            );
+        }
+
+        if (!info.capabilities.languages.includes(language)) {
+            throw new FormatterClientError(
+                "capabilityMismatch",
+                `Formatter does not support the requested language: ${language}.`,
+            );
         }
     }
 

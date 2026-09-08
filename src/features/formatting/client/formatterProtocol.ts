@@ -90,7 +90,8 @@ export type FormatterClientErrorCode =
     | "timeout"
     | "cancelled"
     | "disabled"
-    | "disposed";
+    | "disposed"
+    | "capabilityMismatch";
 
 export class FormatterClientError extends Error {
     public constructor(

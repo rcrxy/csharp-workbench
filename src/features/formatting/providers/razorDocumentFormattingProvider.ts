@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
-import { resolveEditorConfig, type EditorConfigFallback } from "../../../core/editorConfig";
+import { resolveEditorConfig, resolveRawEditorConfig, type EditorConfigFallback } from "../../../core/editorConfig";
+import { FormatterClient } from "../client/formatterClient";
+import { FormatterClientError } from "../client/formatterProtocol";
 import {
     applyCSharpTextChanges,
     createCSharpFormattingOptions,
@@ -13,6 +15,7 @@ export class RazorDocumentFormattingProvider
     constructor(
         private readonly log: vscode.LogOutputChannel,
         private readonly csharpBackend?: CSharpFormattingBackend,
+        private readonly formatterClient?: FormatterClient,
     ) {}
 
     async provideDocumentFormattingEdits(
@@ -20,6 +23,10 @@ export class RazorDocumentFormattingProvider
         options: vscode.FormattingOptions,
         token: vscode.CancellationToken,
     ): Promise<vscode.TextEdit[]> {
+        if (this.formatterClient) {
+            return this.provideClientDocumentEdits(document, options, token);
+        }
+
         return this.provideFullDocumentFormattingEdits(document, options, token, "document");
     }
 
@@ -39,6 +46,66 @@ export class RazorDocumentFormattingProvider
         token: vscode.CancellationToken,
     ): Promise<vscode.TextEdit[]> {
         return this.provideFullDocumentFormattingEdits(document, options, token, "ranges", `count=${ranges.length}`);
+    }
+
+    private async provideClientDocumentEdits(
+        document: vscode.TextDocument,
+        options: vscode.FormattingOptions,
+        token: vscode.CancellationToken,
+    ): Promise<vscode.TextEdit[]> {
+        const startedAt = performance.now();
+        const version = document.version;
+
+        try {
+            if (token.isCancellationRequested) {
+                this.log.info(`Razor document formatting cancelled: ${document.uri.toString()}.`);
+                return [];
+            }
+
+            const source = document.getText();
+            const controller = new AbortController();
+            const cancellationSubscription = token.onCancellationRequested(() => controller.abort());
+
+            try {
+                const result = await this.formatterClient!.formatDocument(
+                    {
+                        language: document.uri.path.toLowerCase().endsWith(".cshtml") ? "cshtml" : "razor",
+                        source,
+                        resolvedEditorConfig: await resolveRawEditorConfig(document.uri),
+                        editorFallback: createFormatterEditorFallback(document, options),
+                    },
+                    controller.signal,
+                );
+
+                if (token.isCancellationRequested || document.version !== version) {
+                    this.log.info(`Razor document formatting cancelled or stale: ${document.uri.toString()}.`);
+                    return [];
+                }
+
+                const edits = mapFormatterChanges(document, result.changes);
+                this.log.info(
+                    `Razor document formatting completed via tool: ${document.uri.toString()} ` +
+                        `(changed=${edits.length > 0}, duration=${formatElapsedTime(startedAt)}, ` +
+                        `inputChars=${source.length}, changeCount=${result.changes.length}).`,
+                );
+                return edits;
+            } finally {
+                cancellationSubscription.dispose();
+            }
+        } catch (error) {
+            if (token.isCancellationRequested) {
+                this.log.info(`Razor document formatting cancelled: ${document.uri.toString()}.`);
+                return [];
+            }
+
+            if (error instanceof FormatterClientError) {
+                this.log.warn(`Razor document formatter client rejected request: ${document.uri.toString()} (${error.code}).`);
+                return [];
+            }
+
+            this.log.error(`Razor document formatting failed: ${document.uri.toString()}.`, error);
+            throw error;
+        }
     }
 
     private async provideFullDocumentFormattingEdits(
@@ -146,4 +213,41 @@ function getIndentationFallback(document: vscode.TextDocument, options: vscode.F
         insertFinalNewline: true,
         trimTrailingWhitespace: false,
     };
+}
+
+function createFormatterEditorFallback(
+    document: vscode.TextDocument,
+    options: vscode.FormattingOptions,
+): {
+    insertSpaces: boolean;
+    tabSize: number;
+    maxLineLength?: number;
+    lineEnding: "\n" | "\r\n";
+    insertFinalNewline: boolean;
+    trimTrailingWhitespace: boolean;
+} {
+    return {
+        insertSpaces: options.insertSpaces,
+        tabSize: options.tabSize,
+        maxLineLength: vscode.workspace.getConfiguration("editor", document.uri).get<number>("wordWrapColumn"),
+        lineEnding: document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n",
+        insertFinalNewline: true,
+        trimTrailingWhitespace: false,
+    };
+}
+
+function mapFormatterChanges(
+    document: vscode.TextDocument,
+    changes: readonly { span: { start: number; length: number }; newText: string }[],
+): vscode.TextEdit[] {
+    return changes.map(change => {
+        const start = change.span.start;
+        const length = change.span.length;
+        const end = start + length;
+        if (start < 0 || length < 0 || end > document.getText().length) {
+            throw new RangeError("Formatter returned a change outside the requested document span.");
+        }
+
+        return vscode.TextEdit.replace(new vscode.Range(document.positionAt(start), document.positionAt(end)), change.newText);
+    });
 }

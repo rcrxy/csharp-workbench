@@ -28,18 +28,23 @@ function readFrames(): void {
     }
 }
 
-function handleMessage(message: { id?: number; method: string; params?: { source?: string } }): void {
+function handleMessage(message: { id?: number; method: string; params?: { source?: string; language?: string } }): void {
     if (mode === "no-handshake") {
         return;
     }
 
     if (message.method === "handshake" && typeof message.id === "number") {
+        const capabilities =
+            mode === "no-format-document"
+                ? { formatDocument: false, languages: ["csharp"] }
+                : { formatDocument: true, languages: ["csharp"] };
+
         write({
             id: message.id,
             result: {
                 protocolVersion: 1,
                 formatterVersion: "fixture",
-                capabilities: { formatDocument: true, languages: ["csharp"] },
+                capabilities,
             },
         });
         return;

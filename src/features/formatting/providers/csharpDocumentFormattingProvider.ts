@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
-import { resolveEditorConfig, type EditorConfigFallback } from "../../../core/editorConfig";
+import { resolveEditorConfig, resolveRawEditorConfig, type EditorConfigFallback } from "../../../core/editorConfig";
+import { FormatterClient } from "../client/formatterClient";
+import { FormatterClientError } from "../client/formatterProtocol";
 import {
     createCSharpFormattingOptions,
     type CSharpDocumentFormattingRequest,
@@ -16,7 +18,8 @@ export class CSharpDocumentFormattingProvider
 {
     constructor(
         private readonly log: vscode.LogOutputChannel,
-        private readonly backend: CSharpFormattingBackend,
+        private readonly backend?: CSharpFormattingBackend,
+        private readonly formatterClient?: FormatterClient,
     ) {}
 
     async provideDocumentFormattingEdits(
@@ -24,6 +27,10 @@ export class CSharpDocumentFormattingProvider
         options: vscode.FormattingOptions,
         token: vscode.CancellationToken,
     ): Promise<vscode.TextEdit[]> {
+        if (this.formatterClient) {
+            return this.provideClientDocumentEdits(document, options, token);
+        }
+
         return this.provideEdits(document, fullDocumentRange(document), options, token, "document");
     }
 
@@ -36,6 +43,66 @@ export class CSharpDocumentFormattingProvider
         return this.provideEdits(document, expandToFullLines(document, range), options, token, "range");
     }
 
+    private async provideClientDocumentEdits(
+        document: vscode.TextDocument,
+        options: vscode.FormattingOptions,
+        token: vscode.CancellationToken,
+    ): Promise<vscode.TextEdit[]> {
+        const startedAt = performance.now();
+        const version = document.version;
+
+        try {
+            if (token.isCancellationRequested) {
+                this.log.info(`C# document formatting cancelled: ${document.uri.toString()}.`);
+                return [];
+            }
+
+            const source = document.getText();
+            const controller = new AbortController();
+            const cancellationSubscription = token.onCancellationRequested(() => controller.abort());
+
+            try {
+                const result = await this.formatterClient!.formatDocument(
+                    {
+                        language: "csharp",
+                        source,
+                        resolvedEditorConfig: await resolveRawEditorConfig(document.uri),
+                        editorFallback: createFormatterEditorFallback(document, options, "csharp"),
+                    },
+                    controller.signal,
+                );
+
+                if (token.isCancellationRequested || document.version !== version) {
+                    this.log.info(`C# document formatting cancelled or stale: ${document.uri.toString()}.`);
+                    return [];
+                }
+
+                const edits = mapFormatterChanges(document, source.length, result.changes);
+                this.log.info(
+                    `C# document formatting completed via tool: ${document.uri.toString()} ` +
+                        `(changed=${edits.length > 0}, duration=${formatElapsedTime(startedAt)}, ` +
+                        `inputChars=${source.length}, changeCount=${result.changes.length}).`,
+                );
+                return edits;
+            } finally {
+                cancellationSubscription.dispose();
+            }
+        } catch (error) {
+            if (token.isCancellationRequested) {
+                this.log.info(`C# document formatting cancelled: ${document.uri.toString()}.`);
+                return [];
+            }
+
+            if (error instanceof FormatterClientError) {
+                this.log.warn(`C# document formatter client rejected request: ${document.uri.toString()} (${error.code}).`);
+                return [];
+            }
+
+            this.log.error(`C# document formatting failed: ${document.uri.toString()}.`, error);
+            throw error;
+        }
+    }
+
     private async provideEdits(
         document: vscode.TextDocument,
         targetRange: vscode.Range,
@@ -43,6 +110,10 @@ export class CSharpDocumentFormattingProvider
         token: vscode.CancellationToken,
         kind: Exclude<CSharpFormattingKind, "snippet">,
     ): Promise<vscode.TextEdit[]> {
+        if (!this.backend) {
+            return [];
+        }
+
         const startedAt = performance.now();
         try {
             const editorConfig = await resolveEditorConfig(document.uri, getEditorConfigFallback(document, options));
@@ -97,7 +168,7 @@ export class CSharpDocumentFormattingProvider
         const cancellationSubscription = token.onCancellationRequested(() => controller.abort());
 
         try {
-            return await this.backend.format({ ...request, signal: controller.signal });
+            return await this.backend!.format({ ...request, signal: controller.signal });
         } finally {
             cancellationSubscription.dispose();
         }
@@ -150,4 +221,43 @@ function getEditorConfigFallback(document: vscode.TextDocument, options: vscode.
         profileFileName: "document.cs",
         lineEnding: document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n",
     };
+}
+
+function createFormatterEditorFallback(
+    document: vscode.TextDocument,
+    options: vscode.FormattingOptions,
+    language: string,
+): {
+    insertSpaces: boolean;
+    tabSize: number;
+    maxLineLength?: number;
+    lineEnding: "\n" | "\r\n";
+    insertFinalNewline: boolean;
+    trimTrailingWhitespace: boolean;
+} {
+    return {
+        insertSpaces: options.insertSpaces,
+        tabSize: options.tabSize,
+        maxLineLength: vscode.workspace.getConfiguration("editor", document.uri).get<number>("wordWrapColumn"),
+        lineEnding: document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n",
+        insertFinalNewline: language === "csharp" ? false : true,
+        trimTrailingWhitespace: false,
+    };
+}
+
+function mapFormatterChanges(
+    document: vscode.TextDocument,
+    sourceLength: number,
+    changes: readonly { span: { start: number; length: number }; newText: string }[],
+): vscode.TextEdit[] {
+    return changes.map(change => {
+        const start = change.span.start;
+        const length = change.span.length;
+        const end = start + length;
+        if (start < 0 || length < 0 || end > sourceLength) {
+            throw new RangeError("Formatter returned a change outside the requested document span.");
+        }
+
+        return vscode.TextEdit.replace(new vscode.Range(document.positionAt(start), document.positionAt(end)), change.newText);
+    });
 }
