@@ -70,6 +70,9 @@ internal sealed class FormatterServer
                 case "formatDocument":
                     await HandleFormatDocumentAsync(message).ConfigureAwait(false);
                     break;
+                case "formatRange":
+                    await HandleFormatRangeAsync(message).ConfigureAwait(false);
+                    break;
                 case "cancel":
                     HandleCancel(DeserializeParams<CancelParams>(message));
                     break;
@@ -110,6 +113,7 @@ internal sealed class FormatterServer
                 Capabilities = new FormatterCapabilities
                 {
                     FormatDocument = true,
+                    FormatRange = true,
                     Languages = new[] { "csharp", "razor", "cshtml" },
                 },
             },
@@ -142,6 +146,32 @@ internal sealed class FormatterServer
         }
     }
 
+    private async Task HandleFormatRangeAsync(WireMessage message)
+    {
+        var id = RequireRequestId(message);
+        if (!_handshakeCompleted)
+        {
+            await WriteErrorAsync(id, "handshakeRequired", "A successful handshake is required.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var parameters = DeserializeParams<FormatRangeParams>(message);
+        var cancellation = new CancellationTokenSource();
+        lock (_requestLock)
+        {
+            if (_activeRequests.ContainsKey(id))
+            {
+                cancellation.Dispose();
+                throw new JsonException("The request id is already active.");
+            }
+
+            _activeRequests.Add(id, cancellation);
+            var task = Task.Run(() => FormatRangeAsync(id, parameters, cancellation));
+            _requestTasks.Add(task);
+        }
+    }
+
     private async Task FormatDocumentAsync(
         int id,
         FormatDocumentParams parameters,
@@ -159,6 +189,56 @@ internal sealed class FormatterServer
             {
                 Id = id,
                 Result = new FormatDocumentResult
+                {
+                    Changes = result.Changes.Select(change => new WireTextChange
+                    {
+                        Span = new WireTextSpan
+                        {
+                            Start = change.Span.Start,
+                            Length = change.Span.Length,
+                        },
+                        NewText = change.NewText,
+                    }).ToArray(),
+                },
+            }).ConfigureAwait(false);
+        }
+        catch (FormattingException exception)
+        {
+            await WriteErrorAsync(id, MapErrorCode(exception.Code), exception.Message).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            await WriteErrorAsync(id, "requestCancelled", "Request was cancelled.").ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_requestLock)
+            {
+                _activeRequests.Remove(id);
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
+    private async Task FormatRangeAsync(
+        int id,
+        FormatRangeParams parameters,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            var request = new FormattingRequest(
+                MapLanguage(parameters.Language),
+                parameters.Source,
+                parameters.ResolvedEditorConfig,
+                MapEditorFallback(parameters.EditorFallback),
+                new FormattingTextSpan(parameters.Span.Start, parameters.Span.Length));
+            var result = await _formattingEngine.FormatRangeAsync(request, cancellation.Token).ConfigureAwait(false);
+            await _writer.WriteAsync(new WireResponse
+            {
+                Id = id,
+                Result = new FormatRangeResult
                 {
                     Changes = result.Changes.Select(change => new WireTextChange
                     {

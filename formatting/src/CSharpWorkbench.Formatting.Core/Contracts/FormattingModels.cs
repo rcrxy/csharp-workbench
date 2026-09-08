@@ -58,12 +58,14 @@ public sealed class FormattingRequest
         FormattingLanguage language,
         string source,
         IReadOnlyDictionary<string, string>? resolvedEditorConfig = null,
-        EditorFallback? editorFallback = null)
+        EditorFallback? editorFallback = null,
+        FormattingTextSpan? range = null)
     {
         Language = language;
         Source = source ?? throw new ArgumentNullException(nameof(source));
         ResolvedEditorConfig = resolvedEditorConfig ?? new Dictionary<string, string>();
         EditorFallback = editorFallback ?? new EditorFallback();
+        Range = range;
     }
 
     public FormattingLanguage Language { get; }
@@ -72,4 +74,6 @@ public sealed class FormattingRequest
 
     public IReadOnlyDictionary<string, string> ResolvedEditorConfig { get; }
     public EditorFallback EditorFallback { get; }
+
+    public FormattingTextSpan? Range { get; }
 }

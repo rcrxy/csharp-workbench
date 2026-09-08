@@ -92,6 +92,38 @@ describe("FormatterClient", () => {
         await client.dispose();
     });
 
+    it("supports range formatting through the formatter protocol", async () => {
+        const client = createClient();
+
+        assert.deepEqual(
+            await client.formatRange({
+                language: "csharp",
+                source: "class Demo{void Run(){if(true){}}}",
+                span: { start: 15, length: 11 },
+                resolvedEditorConfig: {},
+                editorFallback: { insertSpaces: true, tabSize: 4, lineEnding: "\n" as const },
+            }),
+            { changes: [] },
+        );
+        await client.dispose();
+    });
+
+    it("rejects range capability mismatches before sending the business request", async () => {
+        const client = createClient("no-format-range");
+
+        await assert.rejects(
+            client.formatRange({
+                language: "csharp",
+                source: "class Demo{}",
+                span: { start: 0, length: 12 },
+                resolvedEditorConfig: {},
+                editorFallback: { insertSpaces: true, tabSize: 4, lineEnding: "\n" as const },
+            }),
+            (error: unknown) => error instanceof FormatterClientError && error.code === "capabilityMismatch",
+        );
+        await client.dispose();
+    });
+
     it("rejects unsupported language requests before sending the business request", async () => {
         const client = createClient();
 

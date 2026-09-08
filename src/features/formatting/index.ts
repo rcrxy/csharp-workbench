@@ -26,10 +26,9 @@ export async function registerFormattingFeature(
           })
         : undefined;
 
-    const csharpLegacyFormatter = new CSharpDocumentFormattingProvider(log, backend);
     const csharpRangeFormattingProvider = vscode.languages.registerDocumentRangeFormattingEditProvider(
         { language: "csharp" },
-        csharpLegacyFormatter,
+        new CSharpDocumentFormattingProvider(log, backend, formatterClient),
     );
     const razorRangeFormattingProvider = vscode.languages.registerDocumentRangeFormattingEditProvider(
         [{ language: "aspnetcorerazor" }, { language: "razor" }],

@@ -6,6 +6,8 @@ import {
     type FormatterClientStatus,
     type FormatterFormatDocumentRequest,
     type FormatterFormatDocumentResult,
+    type FormatterFormatRangeRequest,
+    type FormatterFormatRangeResult,
     type FormatterInfo,
     type WireResponse,
 } from "./formatterProtocol";
@@ -60,9 +62,28 @@ export class FormatterClient {
             throw this.cancelledError();
         }
 
-        this.assertRequestCapabilities(request.language);
+        this.assertRequestCapabilities(request.language, "document");
         return this.sendRequest<FormatterFormatDocumentResult>(
             "formatDocument",
+            request,
+            signal,
+            this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+        );
+    }
+
+    public async formatRange(request: FormatterFormatRangeRequest, signal?: AbortSignal): Promise<FormatterFormatRangeResult> {
+        if (signal?.aborted) {
+            throw this.cancelledError();
+        }
+
+        await this.ensureReady();
+        if (signal?.aborted) {
+            throw this.cancelledError();
+        }
+
+        this.assertRequestCapabilities(request.language, "range");
+        return this.sendRequest<FormatterFormatRangeResult>(
+            "formatRange",
             request,
             signal,
             this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
@@ -398,16 +419,17 @@ export class FormatterClient {
         }
     }
 
-    private assertRequestCapabilities(language: string): void {
+    private assertRequestCapabilities(language: string, kind: "document" | "range"): void {
         const info = this.infoValue;
         if (!info) {
             throw new FormatterClientError("handshakeFailure", "Formatter capability information is unavailable.");
         }
 
-        if (!info.capabilities.formatDocument) {
+        const capabilityKey = kind === "document" ? "formatDocument" : "formatRange";
+        if (!info.capabilities[capabilityKey]) {
             throw new FormatterClientError(
                 "capabilityMismatch",
-                `Formatter does not advertise document formatting support for ${language}.`,
+                `Formatter does not advertise ${kind} formatting support for ${language}.`,
             );
         }
 
@@ -431,6 +453,7 @@ function parseFormatterInfo(value: unknown): FormatterInfo {
         typeof value.formatterVersion !== "string" ||
         !isRecord(value.capabilities) ||
         typeof value.capabilities.formatDocument !== "boolean" ||
+        typeof value.capabilities.formatRange !== "boolean" ||
         !Array.isArray(value.capabilities.languages) ||
         !value.capabilities.languages.every((language): language is string => typeof language === "string")
     ) {
@@ -442,6 +465,7 @@ function parseFormatterInfo(value: unknown): FormatterInfo {
         formatterVersion: value.formatterVersion,
         capabilities: {
             formatDocument: value.capabilities.formatDocument,
+            formatRange: value.capabilities.formatRange,
             languages: [...value.capabilities.languages],
         },
     };

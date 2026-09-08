@@ -48,6 +48,8 @@ internal sealed class FormatterCapabilities
 {
     public bool FormatDocument { get; init; }
 
+    public bool FormatRange { get; init; }
+
     public required IReadOnlyList<string> Languages { get; init; }
 }
 
@@ -56,6 +58,19 @@ internal sealed class FormatDocumentParams
     public required string Language { get; init; }
 
     public required string Source { get; init; }
+
+    public IReadOnlyDictionary<string, string>? ResolvedEditorConfig { get; init; }
+
+    public WireEditorFallback? EditorFallback { get; init; }
+}
+
+internal sealed class FormatRangeParams
+{
+    public required string Language { get; init; }
+
+    public required string Source { get; init; }
+
+    public required WireTextSpan Span { get; init; }
 
     public IReadOnlyDictionary<string, string>? ResolvedEditorConfig { get; init; }
 
@@ -85,6 +100,11 @@ internal sealed class WireEditorFallback
 }
 
 internal sealed class FormatDocumentResult
+{
+    public required IReadOnlyList<WireTextChange> Changes { get; init; }
+}
+
+internal sealed class FormatRangeResult
 {
     public required IReadOnlyList<WireTextChange> Changes { get; init; }
 }

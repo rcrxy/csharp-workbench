@@ -36,8 +36,10 @@ function handleMessage(message: { id?: number; method: string; params?: { source
     if (message.method === "handshake" && typeof message.id === "number") {
         const capabilities =
             mode === "no-format-document"
-                ? { formatDocument: false, languages: ["csharp"] }
-                : { formatDocument: true, languages: ["csharp"] };
+                ? { formatDocument: false, formatRange: true, languages: ["csharp"] }
+                : mode === "no-format-range"
+                  ? { formatDocument: true, formatRange: false, languages: ["csharp"] }
+                  : { formatDocument: true, formatRange: true, languages: ["csharp"] };
 
         write({
             id: message.id,
@@ -51,6 +53,19 @@ function handleMessage(message: { id?: number; method: string; params?: { source
     }
 
     if (message.method === "formatDocument" && typeof message.id === "number") {
+        if (mode === "crash-on-format" && message.params?.source === "crash") {
+            process.exit(3);
+        }
+
+        if (mode === "timeout-format") {
+            return;
+        }
+
+        write({ id: message.id, result: { changes: [] } });
+        return;
+    }
+
+    if (message.method === "formatRange" && typeof message.id === "number") {
         if (mode === "crash-on-format" && message.params?.source === "crash") {
             process.exit(3);
         }

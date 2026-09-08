@@ -26,6 +26,14 @@ export interface FormatterFormatDocumentRequest {
     readonly editorFallback?: FormatterEditorFallback;
 }
 
+export interface FormatterFormatRangeRequest {
+    readonly language: string;
+    readonly source: string;
+    readonly span: FormatterTextSpan;
+    readonly resolvedEditorConfig?: Readonly<Record<string, string>>;
+    readonly editorFallback?: FormatterEditorFallback;
+}
+
 export interface FormatterTextSpan {
     readonly start: number;
     readonly length: number;
@@ -40,8 +48,13 @@ export interface FormatterFormatDocumentResult {
     readonly changes: readonly FormatterTextChange[];
 }
 
+export interface FormatterFormatRangeResult {
+    readonly changes: readonly FormatterTextChange[];
+}
+
 export interface FormatterCapabilities {
     readonly formatDocument: boolean;
+    readonly formatRange: boolean;
     readonly languages: readonly string[];
 }
 

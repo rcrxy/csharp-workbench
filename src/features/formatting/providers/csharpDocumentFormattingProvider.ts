@@ -40,7 +40,11 @@ export class CSharpDocumentFormattingProvider
         options: vscode.FormattingOptions,
         token: vscode.CancellationToken,
     ): Promise<vscode.TextEdit[]> {
-        return this.provideEdits(document, expandToFullLines(document, range), options, token, "range");
+        if (this.formatterClient) {
+            return this.provideClientRangeEdits(document, range, options, token);
+        }
+
+        return this.provideEdits(document, range, options, token, "range");
     }
 
     private async provideClientDocumentEdits(
@@ -99,6 +103,69 @@ export class CSharpDocumentFormattingProvider
             }
 
             this.log.error(`C# document formatting failed: ${document.uri.toString()}.`, error);
+            throw error;
+        }
+    }
+
+    private async provideClientRangeEdits(
+        document: vscode.TextDocument,
+        range: vscode.Range,
+        options: vscode.FormattingOptions,
+        token: vscode.CancellationToken,
+    ): Promise<vscode.TextEdit[]> {
+        const startedAt = performance.now();
+        const version = document.version;
+
+        try {
+            if (token.isCancellationRequested) {
+                this.log.info(`C# range formatting cancelled: ${document.uri.toString()}.`);
+                return [];
+            }
+
+            const source = document.getText();
+            const targetSpan = toTextSpan(document, range);
+            const controller = new AbortController();
+            const cancellationSubscription = token.onCancellationRequested(() => controller.abort());
+
+            try {
+                const result = await this.formatterClient!.formatRange(
+                    {
+                        language: "csharp",
+                        source,
+                        span: targetSpan,
+                        resolvedEditorConfig: await resolveRawEditorConfig(document.uri),
+                        editorFallback: createFormatterEditorFallback(document, options, "csharp"),
+                    },
+                    controller.signal,
+                );
+
+                if (token.isCancellationRequested || document.version !== version) {
+                    this.log.info(`C# range formatting cancelled or stale: ${document.uri.toString()}.`);
+                    return [];
+                }
+
+                const edits = mapFormatterChanges(document, source.length, result.changes);
+                this.log.info(
+                    `C# range formatting completed via tool: ${document.uri.toString()} ` +
+                        `(changed=${edits.length > 0}, duration=${formatElapsedTime(startedAt)}, ` +
+                        `range=${formatRange(range)}, inputChars=${source.length}, changeCount=${result.changes.length}).`,
+                );
+                return edits;
+            } finally {
+                cancellationSubscription.dispose();
+            }
+        } catch (error) {
+            if (token.isCancellationRequested) {
+                this.log.info(`C# range formatting cancelled: ${document.uri.toString()}.`);
+                return [];
+            }
+
+            if (error instanceof FormatterClientError) {
+                this.log.warn(`C# range formatter client rejected request: ${document.uri.toString()} (${error.code}).`);
+                return [];
+            }
+
+            this.log.error(`C# range formatting failed: ${document.uri.toString()}.`, error);
             throw error;
         }
     }

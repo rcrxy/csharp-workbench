@@ -32,7 +32,7 @@ public sealed class FormatterProcessTests
         Assert.True(capabilities.GetProperty("formatDocument").GetBoolean());
         Assert.Equal(new[] { "csharp", "razor", "cshtml" }, capabilities.GetProperty("languages")
             .EnumerateArray().Select(value => value.GetString()).ToArray());
-        Assert.False(capabilities.TryGetProperty("formatRange", out _));
+        Assert.True(capabilities.GetProperty("formatRange").GetBoolean());
         Assert.False(capabilities.TryGetProperty("formatSnippet", out _));
 
         await formatter.ShutdownAsync(2);
