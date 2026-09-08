@@ -167,6 +167,91 @@ public sealed class FormatterProcessTests
     }
 
     [Fact]
+    public async Task SameServerHandlesMixedDocumentAndRangeRequests()
+    {
+        const string csharpSource = "class Demo{void Run(){if(true){Work();}}}";
+        const string razorSource = "<div><Widget Value = \"@(left+right)\" /></div>";
+        var csharpRangeStart = csharpSource.IndexOf("if", StringComparison.Ordinal);
+        var razorRangeStart = razorSource.IndexOf("Value", StringComparison.Ordinal);
+        var requests = new[]
+        {
+            new { Language = "csharp", Method = "formatDocument", Source = csharpSource, Start = 0, Length = 0 },
+            new { Language = "razor", Method = "formatDocument", Source = razorSource, Start = 0, Length = 0 },
+            new { Language = "cshtml", Method = "formatDocument", Source = razorSource, Start = 0, Length = 0 },
+            new { Language = "csharp", Method = "formatRange", Source = csharpSource, Start = csharpRangeStart, Length = 2 },
+            new { Language = "razor", Method = "formatRange", Source = razorSource, Start = razorRangeStart, Length = 5 },
+            new { Language = "cshtml", Method = "formatRange", Source = razorSource, Start = razorRangeStart, Length = 5 },
+        };
+        await using var formatter = FormatterProcess.Start();
+        await formatter.HandshakeAsync();
+
+        for (var index = 0; index < requests.Length; index++)
+        {
+            var request = requests[index];
+            await formatter.SendAsync(new
+            {
+                id = index + 2,
+                method = request.Method,
+                @params = request.Method == "formatDocument"
+                    ? CreateFormatParams(request.Language, request.Source)
+                    : CreateRangeFormatParams(request.Language, request.Source, request.Start, request.Length),
+            });
+            using var response = await formatter.ReadAsync();
+
+            Assert.Equal(index + 2, response.RootElement.GetProperty("id").GetInt32());
+            Assert.True(response.RootElement.TryGetProperty("result", out var result));
+            Assert.NotEmpty(result.GetProperty("changes").EnumerateArray());
+        }
+
+        await formatter.SendAsync(new
+        {
+            id = 8,
+            method = "formatDocument",
+            @params = CreateFormatParams("csharp", "class StillReady{}"),
+        });
+        using var finalResponse = await formatter.ReadAsync();
+        Assert.True(finalResponse.RootElement.TryGetProperty("result", out _));
+        await formatter.ShutdownAsync(9);
+    }
+
+    [Fact]
+    public async Task ServerHandlesEightConcurrentRequestsAndRemainsUsable()
+    {
+        const int requestCount = 8;
+        await using var formatter = FormatterProcess.Start();
+        await formatter.HandshakeAsync();
+
+        for (var index = 0; index < requestCount; index++)
+        {
+            await formatter.SendAsync(new
+            {
+                id = index + 2,
+                method = "formatDocument",
+                @params = CreateFormatParams("csharp", $"class Demo{index}{{void Run(){{Work();}}}}"),
+            });
+        }
+
+        var responseIds = new HashSet<int>();
+        for (var index = 0; index < requestCount; index++)
+        {
+            using var response = await formatter.ReadAsync();
+            Assert.True(response.RootElement.TryGetProperty("result", out _));
+            Assert.True(responseIds.Add(response.RootElement.GetProperty("id").GetInt32()));
+        }
+
+        Assert.Equal(Enumerable.Range(2, requestCount), responseIds.Order());
+        await formatter.SendAsync(new
+        {
+            id = requestCount + 2,
+            method = "formatDocument",
+            @params = CreateFormatParams("razor", "<div><span>Ready</span></div>"),
+        });
+        using var finalResponse = await formatter.ReadAsync();
+        Assert.True(finalResponse.RootElement.TryGetProperty("result", out _));
+        await formatter.ShutdownAsync(requestCount + 3);
+    }
+
+    [Fact]
     public async Task ProtocolErrorsDoNotStopLaterValidRequests()
     {
         await using var formatter = FormatterProcess.Start();
@@ -303,6 +388,23 @@ public sealed class FormatterProcessTests
         {
             language,
             source,
+            resolvedEditorConfig = new Dictionary<string, string>(),
+            editorFallback = new
+            {
+                insertSpaces = true,
+                tabSize = 4,
+                lineEnding = "\n",
+            },
+        };
+    }
+
+    private static object CreateRangeFormatParams(string language, string source, int start, int length)
+    {
+        return new
+        {
+            language,
+            source,
+            span = new { start, length },
             resolvedEditorConfig = new Dictionary<string, string>(),
             editorFallback = new
             {

@@ -51,6 +51,22 @@ describe("FormatterClient real Formatter integration", () => {
             const second = await client.formatDocument(request);
             const razorSource = '<Widget Value = "@(left+right)" />';
             const selectedStart = razorSource.indexOf("Value");
+            const csharpRange = await client.formatRange({
+                ...request,
+                span: { start: request.source.indexOf("void"), length: "void Run(int left,int right){}".length },
+            });
+            const razorDocument = await client.formatDocument({
+                ...request,
+                language: "razor",
+                source: razorSource,
+                resolvedEditorConfig: {},
+            });
+            const cshtmlDocument = await client.formatDocument({
+                ...request,
+                language: "cshtml",
+                source: razorSource,
+                resolvedEditorConfig: {},
+            });
             const razorRange = await client.formatRange({
                 language: "razor",
                 source: razorSource,
@@ -73,6 +89,37 @@ describe("FormatterClient real Formatter integration", () => {
                     lineEnding: "\n" as const,
                 },
             });
+            const warmOperations = [
+                () => client.formatDocument(request),
+                () => client.formatDocument({ ...request, language: "razor", source: razorSource, resolvedEditorConfig: {} }),
+                () => client.formatDocument({ ...request, language: "cshtml", source: razorSource, resolvedEditorConfig: {} }),
+                () =>
+                    client.formatRange({
+                        ...request,
+                        span: { start: request.source.indexOf("void"), length: "void Run(int left,int right){}".length },
+                    }),
+                () =>
+                    client.formatRange({
+                        ...request,
+                        language: "razor",
+                        source: razorSource,
+                        span: { start: selectedStart, length: "Value".length },
+                        resolvedEditorConfig: {},
+                    }),
+                () =>
+                    client.formatRange({
+                        ...request,
+                        language: "cshtml",
+                        source: razorSource,
+                        span: { start: selectedStart, length: "Value".length },
+                        resolvedEditorConfig: {},
+                    }),
+            ];
+
+            for (let index = 0; index < 24; index++) {
+                await warmOperations[index % warmOperations.length]!();
+                assert.equal(client.status, "ready");
+            }
 
             assert.equal(client.status, "ready");
             assert.equal(client.info?.protocolVersion, 1);
@@ -82,6 +129,9 @@ describe("FormatterClient real Formatter integration", () => {
             assert.equal(first.changes.length, 1);
             assert.match(first.changes[0]!.newText, /class Demo \{/u);
             assert.match(first.changes[0]!.newText, /Run\(int left,int right\)/u);
+            assert.equal(csharpRange.changes.length, 1);
+            assert.equal(razorDocument.changes.length, 1);
+            assert.deepEqual(razorDocument, cshtmlDocument);
             assert.deepEqual(razorRange, cshtmlRange);
             assert.equal(razorRange.changes.length, 1);
             assert.equal(razorRange.changes[0]!.newText, '<Widget Value="@(left + right)" />');

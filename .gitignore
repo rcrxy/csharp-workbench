@@ -7,3 +7,4 @@ node_modules
 .vscode-test/
 *.vsix
 .editorconfig
+!src/test/vscode/workspace/.editorconfig
