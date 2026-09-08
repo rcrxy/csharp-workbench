@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { ExtensionFeature } from "./core/extensionFeature";
 import { registerFileCreationFeature } from "./features/fileCreation";
-import { registerFormattingFeature } from "./features/formatting";
+import { disposeFormattingFeature, registerFormattingFeature } from "./features/formatting";
 
 const features: readonly ExtensionFeature[] = [registerFileCreationFeature, registerFormattingFeature];
 
@@ -15,6 +15,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 /**
- * 扩展停用入口。当前资源均由 subscriptions 自动释放，无需额外清理。
+ * 扩展停用入口。等待 Formatter 子进程完成协议关闭。
  */
-export function deactivate() {}
+export async function deactivate(): Promise<void> {
+    await disposeFormattingFeature();
+}

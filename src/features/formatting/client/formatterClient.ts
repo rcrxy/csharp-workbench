@@ -166,6 +166,11 @@ export class FormatterClient {
             this.infoValue = parseFormatterInfo(handshake);
             this.processFailureCount = 0;
             this.currentStatus = "ready";
+            this.options.log?.info(
+                `Formatter ready: version=${this.infoValue.formatterVersion}, ` +
+                    `protocol=${this.infoValue.protocolVersion}, ` +
+                    `languages=${this.infoValue.capabilities.languages.join(",")}.`,
+            );
         } catch (error) {
             const startupError =
                 error instanceof FormatterClientError && error.code === "processFailure"

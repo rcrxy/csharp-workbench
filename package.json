@@ -2,7 +2,7 @@
     "name": "csharp-workbench",
     "displayName": "C# Workbench",
     "description": "C# and Razor development tools for VS Code, including project-aware file creation and EditorConfig-based formatting.",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "publisher": "zeco",
     "author": "zeco",
     "license": "MIT",
@@ -10,6 +10,9 @@
     "engines": {
         "vscode": "^1.98.0"
     },
+    "extensionKind": [
+        "workspace"
+    ],
     "categories": [
         "Formatters",
         "Other"
@@ -47,7 +50,12 @@
         "test:formatting": "dotnet test ./formatting/CSharpWorkbench.Formatting.slnx --configuration Release",
         "test:formatter-client": "node --test out/test/integration/*.test.js",
         "test:coverage": "npm run compile && node --test --experimental-test-coverage --test-coverage-include=out/features/formatting/services/csharpCodeStyleFormatter.js --test-coverage-include=out/features/formatting/services/razorTagFormatter.js --test-coverage-lines=90 --test-coverage-functions=90 out/test/unit/*.test.js",
-        "vsix": "npm run pretest && npx @vscode/vsce package",
+        "publish:formatter:win32-x64": "node scripts/publish-formatter-runtime.mjs win32-x64",
+        "publish:formatter:linux-x64": "node scripts/publish-formatter-runtime.mjs linux-x64",
+        "smoke:formatter:win32-x64": "node scripts/verify-formatter-runtime.mjs win32-x64",
+        "smoke:formatter:linux-x64": "node scripts/verify-formatter-runtime.mjs linux-x64",
+        "vsix:win32-x64": "npm run compile && npm run publish:formatter:win32-x64 && npm run smoke:formatter:win32-x64 && node scripts/package-vsix.mjs win32-x64",
+        "vsix:linux-x64": "npm run compile && npm run publish:formatter:linux-x64 && npm run smoke:formatter:linux-x64 && node scripts/package-vsix.mjs linux-x64",
         "minor": "npm version --no-git-tag-version minor",
         "patch": "npm version --no-git-tag-version patch"
     },

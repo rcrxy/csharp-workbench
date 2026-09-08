@@ -58,6 +58,16 @@ visual width. The policies `on_every_item` and `split_into_lines` are parsed for
 applied as length-based wrapping policies. Multiline attribute arrangement remains controlled by
 `html_attribute_style`, while `html_attribute_indent` controls continuation indentation.
 
+## Bundled Formatter Runtime
+
+Release packages include a self-contained Formatter runtime, so formatting does not require a system .NET
+installation or a separately installed `dotnet` tool. Install the VSIX that matches the workspace extension host:
+
+- `win32-x64` for Windows x64.
+- `linux-x64` for glibc-based Linux x64, including conventional WSL, Remote SSH, and Dev Container hosts.
+
+macOS, ARM, and Alpine Linux hosts are not supported by the 0.2.0 bundled runtime.
+
 ## Project Structure
 
 ```text

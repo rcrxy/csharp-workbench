@@ -27,9 +27,9 @@ describe("FormatterClient real Formatter integration", () => {
             requestTimeoutMs: 10_000,
             shutdownTimeoutMs: 2_000,
             log: {
-                info: context.diagnostic,
-                warn: context.diagnostic,
-                error: context.diagnostic,
+                info: message => context.diagnostic(message),
+                warn: message => context.diagnostic(message),
+                error: message => context.diagnostic(message),
             },
         });
 
