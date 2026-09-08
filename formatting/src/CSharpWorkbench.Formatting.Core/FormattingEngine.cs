@@ -99,7 +99,9 @@ public sealed class FormattingEngine
         {
             case FormattingLanguage.CSharp:
                 {
-                    var options = CSharpFormattingOptionsResolver.Resolve(resolvedEditorConfig, editorFallback);
+                    var options = CSharpFormattingOptionsResolver.Resolve(
+                        resolvedEditorConfig ?? new Dictionary<string, string>(),
+                        editorFallback);
                     var result = await _csharpFormatter.FormatAsync(
                         new CSharpFormattingRequest(
                             source,
