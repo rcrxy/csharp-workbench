@@ -1,6 +1,4 @@
 import * as vscode from "vscode";
-import { defaultProfilePath, initializeDefaultEditorConfigProfile } from "../../core/editorConfig/defaultProfile";
-import type { CSharpFormattingBackend } from "./csharpFormattingBackend";
 import { FormatterClient } from "./client/formatterClient";
 import { createFormatterLaunchSpec, resolveBundledFormatterTarget } from "./client/formatterRuntime";
 import { CSharpDocumentFormattingProvider } from "./providers/csharpDocumentFormattingProvider";
@@ -8,27 +6,11 @@ import { RazorDocumentFormattingProvider } from "./providers/razorDocumentFormat
 
 let formatterClient: FormatterClient | undefined;
 
-export async function registerFormattingFeature(
-    context: vscode.ExtensionContext,
-    csharpBackend?: CSharpFormattingBackend,
-): Promise<void> {
-    const defaultProfileUri = vscode.Uri.joinPath(context.extensionUri, ...defaultProfilePath);
-    initializeDefaultEditorConfigProfile(await vscode.workspace.fs.readFile(defaultProfileUri));
+export async function registerFormattingFeature(context: vscode.ExtensionContext): Promise<void> {
     const log = vscode.window.createOutputChannel("C# Workbench", { log: true });
     const development = context.extensionMode === vscode.ExtensionMode.Development;
     const bundledTarget = resolveBundledFormatterTarget(process.platform, process.arch);
-    const formatterLaunch = csharpBackend
-        ? undefined
-        : createFormatterLaunchSpec(context.extensionUri.fsPath, development, process.platform, process.arch);
-    const client = formatterLaunch
-        ? new FormatterClient({
-              launch: formatterLaunch,
-              log,
-              handshakeTimeoutMs: 10_000,
-              requestTimeoutMs: 60_000,
-              shutdownTimeoutMs: 2_000,
-          })
-        : undefined;
+    const formatterLaunch = createFormatterLaunchSpec(context.extensionUri.fsPath, development, process.platform, process.arch);
 
     log.info(
         `Formatter runtime resolved: runtimeMode=${development ? "development" : "bundled"}, ` +
@@ -36,7 +18,7 @@ export async function registerFormattingFeature(
             `runtimeTarget=${development ? "repository" : (bundledTarget?.target ?? "unsupported")}.`,
     );
 
-    if (!csharpBackend && !client) {
+    if (!formatterLaunch) {
         log.error(
             `Formatting is unavailable because no bundled Formatter runtime supports ` +
                 `${process.platform}/${process.arch}.`,
@@ -45,37 +27,45 @@ export async function registerFormattingFeature(
         return;
     }
 
+    const client = new FormatterClient({
+        launch: formatterLaunch,
+        log,
+        handshakeTimeoutMs: 10_000,
+        requestTimeoutMs: 60_000,
+        shutdownTimeoutMs: 2_000,
+    });
     formatterClient = client;
 
+    const csharpProvider = new CSharpDocumentFormattingProvider(log, client);
+    const razorProvider = new RazorDocumentFormattingProvider(log, client);
     const csharpRangeFormattingProvider = vscode.languages.registerDocumentRangeFormattingEditProvider(
         { language: "csharp" },
-        new CSharpDocumentFormattingProvider(log, csharpBackend, client),
+        csharpProvider,
     );
     const razorRangeFormattingProvider = vscode.languages.registerDocumentRangeFormattingEditProvider(
         [{ language: "aspnetcorerazor" }, { language: "razor" }, { language: "cshtml" }],
-        new RazorDocumentFormattingProvider(log, csharpBackend, client),
+        razorProvider,
     );
-
-    const subscriptions = [log, csharpRangeFormattingProvider, razorRangeFormattingProvider];
-
-    if (client) {
-        const csharpDocumentFormattingProvider = vscode.languages.registerDocumentFormattingEditProvider(
-            { language: "csharp" },
-            new CSharpDocumentFormattingProvider(log, undefined, client),
-        );
-        const razorDocumentFormattingProvider = vscode.languages.registerDocumentFormattingEditProvider(
-            [{ language: "aspnetcorerazor" }, { language: "razor" }, { language: "cshtml" }],
-            new RazorDocumentFormattingProvider(log, undefined, client),
-        );
-
-        subscriptions.push(csharpDocumentFormattingProvider, razorDocumentFormattingProvider);
-    }
+    const csharpDocumentFormattingProvider = vscode.languages.registerDocumentFormattingEditProvider(
+        { language: "csharp" },
+        csharpProvider,
+    );
+    const razorDocumentFormattingProvider = vscode.languages.registerDocumentFormattingEditProvider(
+        [{ language: "aspnetcorerazor" }, { language: "razor" }, { language: "cshtml" }],
+        razorProvider,
+    );
 
     log.info(
         `Formatting feature registered for ASP.NET Razor, Razor, C# document/selection formatting ` +
-            `(C# backend=${csharpBackend?.kind ?? "none"}, formatterClient=${client ? "enabled" : "disabled"}).`,
+            `(formatterClient=enabled).`,
     );
-    context.subscriptions.push(...subscriptions);
+    context.subscriptions.push(
+        log,
+        csharpRangeFormattingProvider,
+        razorRangeFormattingProvider,
+        csharpDocumentFormattingProvider,
+        razorDocumentFormattingProvider,
+    );
 }
 
 export async function disposeFormattingFeature(): Promise<void> {

@@ -7,24 +7,18 @@ Workbench 已经实现其对应行为。
 
 ## EditorConfig
 
-### 内置默认 Profile
+### 解析架构
 
-C# Workbench 通过内置的[默认 EditorConfig Profile](src/core/editorConfig/profiles/default.editorconfig)表达固定的
-默认格式化风格。该 Profile 使用与项目配置相同的 EditorConfig section 匹配机制解析，并显式覆盖 Workbench
-当前实际应用的全部属性。已支持的 C# 格式化属性使用 Microsoft/.NET SDK 配置值；HTML 属性使用对应的
-JetBrains ReSharper/Rider HTML 规则名称与兼容值；上游没有公开默认值的属性使用文档中列出的 Workbench
-兼容默认值。
-
-内置 Profile 只作为最终 fallback。项目中匹配的 `.editorconfig` 始终拥有更高优先级。依赖当前编辑器或文档
-状态的值会在 Profile 之前动态解析，因此 Profile 不会强制覆盖当前编辑上下文中的 Tab 宽度、换行符、最大行宽、
-文件末尾换行、尾随空白处理或字符集。
+TypeScript 扩展宿主使用 `editorconfig` 包解析项目中匹配的配置文件，并把原始字符串键值映射发送给 Formatter
+Tool。C# Formatting Core 负责解释支持的属性并定义所有固定格式化默认值；扩展不再附带默认 EditorConfig
+Profile。
 
 通用解析顺序如下：
 
 1. 项目中匹配的 `.editorconfig` 属性。
-2. 对于存在动态等价项的属性，使用当前 VS Code 编辑器或文档状态。
-3. 使用内置 EditorConfig Profile，其中的值来自 Microsoft、JetBrains 或文档化的兼容默认值。
-4. 仅当 Profile 无法提供有效值时使用代码中的防御性 fallback。
+2. 对具体规则明确支持的兼容别名。
+3. 仅对存在动态等价项的属性，使用当前 VS Code 编辑器或文档状态。
+4. C# Formatting Core 中定义的默认值。
 
 ### 已应用的通用属性
 
@@ -56,9 +50,8 @@ JetBrains ReSharper/Rider HTML 规则名称与兼容值；上游没有公开默�
 | `csharp_indent_case_contents_when_block` | `true`、`false`                                    | `true`                  | 缩进 case 标签下的显式代码块及其语句。                  |
 | `csharp_indent_labels`                   | `flush_left`、`one_less_than_current`、`no_change` | `one_less_than_current` | 控制普通语句标签的缩进。                                |
 
-C# 文档同时支持**格式化文档**和**格式化选定内容**。Razor `@code` 与 `@functions` 代码块通过
-`CSharpCodeFormatter` 接口复用同一个 C# 格式化器。`registerFormattingFeature` 也可以接收自定义
-`CSharpCodeFormatter`，用于替换 Razor 内嵌 C# 的格式化实现。
+C# 文档同时支持**格式化文档**和**格式化选定内容**。Razor `@code` 与 `@functions` 代码块通过同一条
+Formatting Core 链路使用 Roslyn 格式化。
 
 `csharp_indent_block_contents` 同样应用于 Razor 控制块内的 C# 语句和标记。支持的控制结构包括
 `@if`/`else if`/`else`、`@for`、`@foreach`、`@while`、`@switch`、`@using`、`@lock`、
@@ -127,8 +120,8 @@ Razor 控制块同样应用这些换行规则。其左花括号使用 `csharp_ne
 | `csharp_preserve_single_line_blocks`     | `true`、`false` | `true` |
 | `dotnet_style_operator_placement_when_wrapping` | `beginning_of_line`、`end_of_line` | `beginning_of_line` |
 
-代码风格文本转换会保护注释、普通字符串、verbatim 字符串、raw string 和字符字面量。格式化器能识别上述构造，
-但并不是完整的 Roslyn 语法树实现。对于不支持或存在歧义的构造，会尽可能保持不变。
+C# 格式化使用 Roslyn 语法树与格式化服务。Workbench 的换行层同样通过 Roslyn 语法节点和 token 选择已支持的
+换行边界。
 
 ### HTML 与 Razor 标签
 
@@ -184,22 +177,20 @@ html_indent_size = 4
 html_tab_width = 4
 ```
 
-解析标签时会保护 Razor 指令以及 `@code`、`@functions` 代码块，随后再由配置的 `CSharpCodeFormatter`
-格式化其中的 C# 代码。
+Razor 指令、标签、属性、控制块、内嵌 C# 与 range 分类共用同一个 source-preserving
+`RazorDocumentModel`；内嵌 C# 区域使用 Roslyn 格式化。
 
 #### HTML 解析优先级
 
 HTML/Razor 标签格式化对每项适用配置使用以下优先级：
 
 1. 项目 `.editorconfig` 中无前缀的 `html_*` 属性。
-2. 兼容的 `resharper_html_*` 属性；存在等价标准属性时，再使用项目中的标准 EditorConfig 属性。
-3. 当前 VS Code 编辑器设置。
-4. 内置 Profile 中与 ReSharper/Rider HTML 规则兼容的值。
-5. Workbench 的运行时防御性默认值。
+2. 兼容的 `resharper_html_*` 属性。
+3. C# Formatting Core 默认值。
 
 缩进的完整解析链为：`html_indent_*` → `resharper_html_indent_*` → 标准 `indent_*`/`tab_width` → 当前
-`TextEditor.options` → 内置 Profile → 运行时默认值。对于不存在标准 EditorConfig 或 VS Code 等价项的 HTML
-规则，会从项目的语言专属配置回退到内置 Profile，最后再使用 Workbench 的运行时防御性默认值。
+`TextEditor.options` → C# Formatting Core 默认值。对于不存在标准 EditorConfig 或 VS Code 等价项的 HTML
+规则，会从项目的语言专属配置直接回退到对应的 Core 默认值。
 
 ### 动态配置解析优先级
 
@@ -207,7 +198,7 @@ HTML/Razor 标签格式化对每项适用配置使用以下优先级：
 
 1. 匹配的项目 `.editorconfig` 属性。
 2. 当前 VS Code 编辑器选项。
-3. 使用内置 EditorConfig Profile。
+3. C# Formatting Core 默认值。
 
 VS Code fallback 映射如下：
 
@@ -216,35 +207,6 @@ VS Code fallback 映射如下：
 | 缩进风格            | `TextEditor.options.insertSpaces` |
 | 缩进宽度和 Tab 宽度 | `TextEditor.options.tabSize`      |
 | 最大行宽            | `editor.wordWrapColumn`           |
-
-内置 Profile 覆盖当前全部已应用属性，其配置来源顺序为：
-
-1. C# 格式化属性优先采用 Microsoft/.NET SDK 默认配置。
-2. Razor/CSHTML 格式化采用 JetBrains ReSharper/Rider HTML 属性定义。
-3. 上游未公开默认值或属性本身属于兼容别名时，采用 Workbench 兼容默认值。
-
-其中通用和文档类型 section 包括：
-
-```ini
-[*]
-indent_style = space
-max_line_length = 120
-end_of_line = lf
-trim_trailing_whitespace = false
-charset = utf-8
-
-[*.cs]
-indent_size = 4
-tab_width = 4
-insert_final_newline = false
-
-[*.{razor,cshtml}]
-indent_size = 4
-tab_width = 4
-insert_final_newline = true
-html_attribute_style = on_single_line
-html_attribute_wrap = off
-```
 
 ### 示例
 
@@ -291,7 +253,7 @@ max_line_length = off
 
 ### EditorConfig 发现与匹配
 
-C# Workbench 将 EditorConfig 的发现与匹配交给 EditorConfig Core，包括：
+C# Workbench 将 EditorConfig 的发现与匹配交给 TypeScript `editorconfig` 包，包括：
 
 - 从目标文件目录向文件系统根目录搜索。
 - 合并多个 `.editorconfig` 文件中匹配的 section。

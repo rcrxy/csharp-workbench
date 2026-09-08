@@ -7,26 +7,18 @@ returned by the `editorconfig` parser does not mean that Workbench implements it
 
 ## EditorConfig
 
-### Built-In Default Profile
+### Resolution Architecture
 
-C# Workbench expresses its fixed default formatting style through the bundled
-[default EditorConfig Profile](src/core/editorConfig/profiles/default.editorconfig). The Profile is parsed with the
-same EditorConfig section matching used for project files and explicitly covers every property that Workbench applies.
-Microsoft/.NET SDK values are used for supported C# formatting properties. HTML properties use the corresponding
-JetBrains ReSharper/Rider HTML rule names and compatible values. Properties without a published upstream default use
-the documented Workbench compatibility default.
-
-The built-in Profile is the final fallback only. A matching project `.editorconfig` always has priority over it.
-Values derived from the active editor or document remain dynamic and are resolved before the Profile, so the Profile
-does not force a fixed tab size, line ending, maximum line length, final newline, whitespace cleanup, or charset over
-the current editing context.
+The TypeScript extension host uses the `editorconfig` package to resolve matching project files and sends the resulting
+raw string key/value map to the Formatter Tool. The C# Formatting Core interprets supported properties and owns every
+fixed formatting default. There is no bundled default EditorConfig Profile.
 
 The general resolution order is:
 
 1. Matching project `.editorconfig` property.
-2. Current VS Code editor or document state, for properties with a dynamic equivalent.
-3. Bundled EditorConfig Profile, sourced from Microsoft, JetBrains, or the documented compatibility default.
-4. Defensive code fallback, used only if the Profile cannot provide a valid value.
+2. A compatible alias where the specific rule supports one.
+3. Current VS Code editor or document state, only for properties with a dynamic equivalent.
+4. The default defined by the C# Formatting Core.
 
 ### Applied Properties
 
@@ -61,9 +53,7 @@ final newline, or the BOM.
 | `csharp_indent_labels`                   | `flush_left`, `one_less_than_current`, `no_change` | `one_less_than_current` | Controls indentation of ordinary statement labels.                               |
 
 Both **Format Document** and **Format Selection** are supported for C# documents.
-Razor `@code` and `@functions` blocks reuse the same C# formatter through the `CSharpCodeFormatter` interface.
-`registerFormattingFeature` accepts an optional `CSharpCodeFormatter` when a different implementation should be used
-for embedded Razor C# code.
+Razor `@code` and `@functions` blocks are formatted with Roslyn through the same Formatting Core pipeline.
 
 `csharp_indent_block_contents` also applies to C# statements and markup inside Razor control blocks. Supported control
 flows include `@if`/`else if`/`else`, `@for`, `@foreach`, `@while`, `@switch`, `@using`, `@lock`,
@@ -134,9 +124,8 @@ unchanged by these rules.
 | `csharp_preserve_single_line_blocks`     | `true`, `false`  | `true`  |
 | `dotnet_style_operator_placement_when_wrapping` | `beginning_of_line`, `end_of_line` | `beginning_of_line` |
 
-Comments, regular strings, verbatim strings, raw strings, and character literals are protected from code-style text
-transformations. The formatter is syntax-aware for the constructs listed above, but it is not a complete Roslyn syntax
-tree implementation. Unsupported or ambiguous constructs are left unchanged where possible.
+C# formatting uses Roslyn syntax trees and formatting services. Workbench's line-wrapping layer also uses Roslyn syntax
+nodes and tokens to select supported wrapping boundaries.
 
 ### HTML And Razor Tags
 
@@ -196,23 +185,20 @@ html_indent_size = 4
 html_tab_width = 4
 ```
 
-Razor directives and `@code`/`@functions` blocks are protected while tags are parsed. The embedded C# blocks are then
-formatted by the configured `CSharpCodeFormatter`.
+Razor directives, tags, attributes, control blocks, embedded C#, and range classification share a source-preserving
+`RazorDocumentModel`. Embedded C# regions are formatted with Roslyn.
 
 #### HTML Resolution Priority
 
 HTML/Razor tag formatting uses this priority for every applicable setting:
 
 1. The unprefixed `html_*` property from the project `.editorconfig`.
-2. The compatible `resharper_html_*` property, then the equivalent standard project EditorConfig property when one exists.
-3. The current VS Code editor setting.
-4. The bundled ReSharper/Rider-compatible HTML Profile value.
-5. Workbench's defensive runtime default.
+2. The compatible `resharper_html_*` property.
+3. The C# Formatting Core default.
 
 For indentation, the complete chain is `html_indent_*` → `resharper_html_indent_*` → standard `indent_*`/
-`tab_width` → current `TextEditor.options` → bundled Profile → runtime default. HTML rules without a standard
-EditorConfig or VS Code equivalent fall back from their project language-specific forms to the bundled Profile and
-then Workbench's runtime defaults.
+`tab_width` → current `TextEditor.options` → C# Formatting Core default. HTML rules without a standard EditorConfig or
+VS Code equivalent fall back from their project language-specific forms directly to their Core defaults.
 
 ### Resolution Priority
 
@@ -220,7 +206,7 @@ Dynamic indentation properties and `max_line_length` are resolved independently 
 
 1. Matching `.editorconfig` property.
 2. Current VS Code editor options.
-3. Bundled EditorConfig Profile.
+3. C# Formatting Core default.
 
 The VS Code fallback values are:
 
@@ -229,35 +215,6 @@ The VS Code fallback values are:
 | Indentation style              | `TextEditor.options.insertSpaces` |
 | Indentation size and tab width | `TextEditor.options.tabSize`      |
 | Maximum line length            | `editor.wordWrapColumn`           |
-
-The bundled Profile covers all currently applied properties. Its source order is:
-
-1. Microsoft/.NET SDK defaults for C# formatting properties.
-2. JetBrains ReSharper/Rider HTML property definitions for Razor/CSHTML formatting.
-3. Workbench compatibility defaults when an upstream default is not published or the property is an alias.
-
-The shared and document-specific sections include:
-
-```ini
-[*]
-indent_style = space
-max_line_length = 120
-end_of_line = lf
-trim_trailing_whitespace = false
-charset = utf-8
-
-[*.cs]
-indent_size = 4
-tab_width = 4
-insert_final_newline = false
-
-[*.{razor,cshtml}]
-indent_size = 4
-tab_width = 4
-insert_final_newline = true
-html_attribute_style = on_single_line
-html_attribute_wrap = off
-```
 
 ### Examples
 
@@ -305,7 +262,7 @@ max_line_length = off
 
 ### EditorConfig Discovery
 
-C# Workbench delegates EditorConfig discovery and matching to EditorConfig Core. This includes:
+C# Workbench delegates EditorConfig discovery and matching to the TypeScript `editorconfig` package. This includes:
 
 - Searching from the target file directory toward the filesystem root.
 - Merging matching sections from multiple `.editorconfig` files.

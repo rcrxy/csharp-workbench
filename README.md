@@ -16,11 +16,9 @@ Configuration reference: [English](SUPPORTED_CONFIGURATIONS.md) | [简体中文]
 ### C# Formatting
 
 - Supports **Format Document** and **Format Selection** for C# documents.
-- Applies EditorConfig indentation, new-line, spacing, wrapping, line-ending, final-newline, trailing-whitespace, charset,
-	and maximum-line-length rules implemented by Workbench.
-- Indents embedded statements without braces and supports `switch`/`case` indentation behavior.
-- Protects comments, regular strings, verbatim strings, raw strings, character literals, generics, and unary operators
-	from unrelated text transformations.
+- Uses Roslyn syntax trees and formatting services for C# document, selection, and embedded Razor C# formatting.
+- Applies project EditorConfig properties together with dynamic editor fallbacks and defaults resolved by the C#
+	Formatting Core.
 
 ### Razor And HTML Formatting
 
@@ -30,29 +28,31 @@ Configuration reference: [English](SUPPORTED_CONFIGURATIONS.md) | [简体中文]
 - Supports `html_attribute_wrap = off` and `normal`; `normal` first builds a normalized single-line opening tag and
 	uses its visual width to decide whether the configured attribute layout should become multiline.
 - Accepts compatible `resharper_html_*` property names while documenting the unprefixed `html_*` form.
-- Reuses the C# formatter for Razor `@code` and `@functions` blocks.
-- Protects embedded C# while parsing tags so generics and comparison operators are not mistaken for markup.
+- Uses a source-preserving `RazorDocumentModel` for tags, attributes, control blocks, embedded C#, and range
+	classification.
+- Formats embedded C# with Roslyn while preserving Razor/markup boundaries.
 
-### EditorConfig Defaults And Priority
+### Formatting Architecture And Configuration
 
-All fixed formatting defaults are expressed in the bundled
-[default EditorConfig Profile](src/core/editorConfig/profiles/default.editorconfig).
+The TypeScript extension host resolves matching project `.editorconfig` files as raw string key/value pairs and sends
+them to the bundled Formatter Tool. All option semantics and fixed formatting defaults are resolved in the C#
+Formatting Core.
 
 The general resolution order is:
 
 1. Matching project `.editorconfig` property.
-2. Current VS Code editor or document state for dynamic values such as indentation, EOL, and wrapping column.
-3. Bundled default EditorConfig Profile.
-4. Defensive code fallback when no valid Profile value is available.
+2. A compatible alias where the specific rule supports one.
+3. Current VS Code editor or document state for applicable dynamic values such as indentation, EOL, and wrapping
+	column.
+4. The C# Formatting Core default.
 
 See the [supported configuration reference](SUPPORTED_CONFIGURATIONS.md) for the complete property list, values,
 defaults, compatibility aliases, and language-specific priority rules.
 
 ## Current Scope
 
-The formatter implements the documented rule set with syntax-aware lexical protection, but it is not a replacement
-for the complete Roslyn or JetBrains syntax tree. Unsupported or ambiguous constructs are left unchanged where
-possible. `max_line_length` currently wraps C# at safe comma and binary-operator boundaries and, with
+The C# formatter is Roslyn-based. Razor and CSHTML formatting uses a source-preserving document model shared by tag,
+attribute, embedded-C#, and range formatting. `max_line_length` currently wraps C# at supported syntax boundaries and, with
 `html_attribute_wrap = normal`, wraps Razor markup attributes when the formatted opening tag exceeds the configured
 visual width. The policies `on_every_item` and `split_into_lines` are parsed for compatibility but are not currently
 applied as length-based wrapping policies. Multiline attribute arrangement remains controlled by
@@ -73,13 +73,16 @@ macOS, ARM, and Alpine Linux hosts are not supported by the 0.2.0 bundled runtim
 ```text
 src/
 ├─ core/
-│  └─ editorConfig/             # EditorConfig parsing, models, and bundled default Profile
+│  └─ editorConfig/             # Raw EditorConfig resolution
 ├─ features/
 │  ├─ fileCreation/             # Commands, models, renderers, services and templates
-│  └─ formatting/               # C#, Razor, and HTML formatting providers and services
+│  └─ formatting/               # VS Code providers, Formatter client, runtime adapter, and IPC
 ├─ shared/
 │  └─ csharp/                   # Reusable C# project and language capabilities
 └─ index.ts                     # Feature composition root
+
+formatting/
+└─ src/CSharpWorkbench.Formatting.Core/  # All C#, Razor, and HTML formatting semantics
 ```
 
 Each feature exposes a registration function from its `index.ts`. The extension entry point only composes these
@@ -102,8 +105,4 @@ Run static checks and unit tests:
 ```powershell
 npm run pretest
 npm run test:unit
-npm run test:coverage
 ```
-
-The coverage command enforces at least 90% line and function coverage for the core C# code-style and Razor tag
-formatting services.
