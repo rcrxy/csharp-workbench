@@ -125,6 +125,47 @@ public sealed class FormatterProcessTests
         await formatter.ShutdownAsync(3);
     }
 
+    [Theory]
+    [InlineData("razor")]
+    [InlineData("cshtml")]
+    public async Task FormatRangeSupportsRazorLanguagesThroughTheRealProcess(string language)
+    {
+        const string source = "<div><Widget Value = \"@(left+right)\" /></div>";
+        const string selected = "Value";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        await using var formatter = FormatterProcess.Start();
+        await formatter.HandshakeAsync();
+
+        await formatter.SendAsync(new
+        {
+            id = 2,
+            method = "formatRange",
+            @params = new
+            {
+                language,
+                source,
+                span = new { start, length = selected.Length },
+                resolvedEditorConfig = new Dictionary<string, string>(),
+                editorFallback = new
+                {
+                    insertSpaces = true,
+                    tabSize = 4,
+                    lineEnding = "\n",
+                },
+            },
+        });
+        using var response = await formatter.ReadAsync();
+        var change = Assert.Single(response.RootElement.GetProperty("result").GetProperty("changes").EnumerateArray());
+
+        Assert.True(change.GetProperty("span").GetProperty("start").GetInt32() < start);
+        Assert.True(
+            change.GetProperty("span").GetProperty("length").GetInt32() > selected.Length);
+        Assert.Equal(
+            "<Widget Value=\"@(left + right)\" />",
+            change.GetProperty("newText").GetString());
+        await formatter.ShutdownAsync(3);
+    }
+
     [Fact]
     public async Task ProtocolErrorsDoNotStopLaterValidRequests()
     {

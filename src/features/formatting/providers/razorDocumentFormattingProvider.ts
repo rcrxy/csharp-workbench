@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { resolveEditorConfig, resolveRawEditorConfig, type EditorConfigFallback } from "../../../core/editorConfig";
 import { FormatterClient } from "../client/formatterClient";
-import { FormatterClientError } from "../client/formatterProtocol";
+import { FormatterClientError, FormatterRequestError } from "../client/formatterProtocol";
 import {
     applyCSharpTextChanges,
     createCSharpFormattingOptions,
@@ -36,6 +36,10 @@ export class RazorDocumentFormattingProvider
         options: vscode.FormattingOptions,
         token: vscode.CancellationToken,
     ): Promise<vscode.TextEdit[]> {
+        if (this.formatterClient) {
+            return this.provideClientRangeEdits(document, range, options, token);
+        }
+
         return this.provideFullDocumentFormattingEdits(document, options, token, "range", formatRange(range));
     }
 
@@ -69,7 +73,7 @@ export class RazorDocumentFormattingProvider
             try {
                 const result = await this.formatterClient!.formatDocument(
                     {
-                        language: document.uri.path.toLowerCase().endsWith(".cshtml") ? "cshtml" : "razor",
+                        language: getRazorLanguage(document),
                         source,
                         resolvedEditorConfig: await resolveRawEditorConfig(document.uri),
                         editorFallback: createFormatterEditorFallback(document, options),
@@ -82,7 +86,7 @@ export class RazorDocumentFormattingProvider
                     return [];
                 }
 
-                const edits = mapFormatterChanges(document, result.changes);
+                const edits = mapFormatterChanges(document, result.changes, source.length);
                 this.log.info(
                     `Razor document formatting completed via tool: ${document.uri.toString()} ` +
                         `(changed=${edits.length > 0}, duration=${formatElapsedTime(startedAt)}, ` +
@@ -98,12 +102,76 @@ export class RazorDocumentFormattingProvider
                 return [];
             }
 
-            if (error instanceof FormatterClientError) {
+            if (error instanceof FormatterClientError || error instanceof FormatterRequestError) {
                 this.log.warn(`Razor document formatter client rejected request: ${document.uri.toString()} (${error.code}).`);
                 return [];
             }
 
             this.log.error(`Razor document formatting failed: ${document.uri.toString()}.`, error);
+            throw error;
+        }
+    }
+
+    private async provideClientRangeEdits(
+        document: vscode.TextDocument,
+        range: vscode.Range,
+        options: vscode.FormattingOptions,
+        token: vscode.CancellationToken,
+    ): Promise<vscode.TextEdit[]> {
+        const startedAt = performance.now();
+        const version = document.version;
+
+        try {
+            if (token.isCancellationRequested) {
+                this.log.info(`Razor range formatting cancelled: ${document.uri.toString()}.`);
+                return [];
+            }
+
+            const source = document.getText();
+            const start = document.offsetAt(range.start);
+            const targetSpan = { start, length: document.offsetAt(range.end) - start };
+            const controller = new AbortController();
+            const cancellationSubscription = token.onCancellationRequested(() => controller.abort());
+
+            try {
+                const result = await this.formatterClient!.formatRange(
+                    {
+                        language: getRazorLanguage(document),
+                        source,
+                        span: targetSpan,
+                        resolvedEditorConfig: await resolveRawEditorConfig(document.uri),
+                        editorFallback: createFormatterEditorFallback(document, options),
+                    },
+                    controller.signal,
+                );
+
+                if (token.isCancellationRequested || document.version !== version) {
+                    this.log.info(`Razor range formatting cancelled or stale: ${document.uri.toString()}.`);
+                    return [];
+                }
+
+                const edits = mapFormatterChanges(document, result.changes, source.length);
+                this.log.info(
+                    `Razor range formatting completed via tool: ${document.uri.toString()} ` +
+                        `(changed=${edits.length > 0}, duration=${formatElapsedTime(startedAt)}, ` +
+                        `range=${formatRange(range)}, inputChars=${source.length}, changeCount=${result.changes.length}).`,
+                );
+                return edits;
+            } finally {
+                cancellationSubscription.dispose();
+            }
+        } catch (error) {
+            if (token.isCancellationRequested) {
+                this.log.info(`Razor range formatting cancelled: ${document.uri.toString()}.`);
+                return [];
+            }
+
+            if (error instanceof FormatterClientError || error instanceof FormatterRequestError) {
+                this.log.warn(`Razor range formatter client rejected request: ${document.uri.toString()} (${error.code}).`);
+                return [];
+            }
+
+            this.log.error(`Razor range formatting failed: ${document.uri.toString()}.`, error);
             throw error;
         }
     }
@@ -236,15 +304,20 @@ function createFormatterEditorFallback(
     };
 }
 
+function getRazorLanguage(document: vscode.TextDocument): "razor" | "cshtml" {
+    return document.uri.path.toLowerCase().endsWith(".cshtml") ? "cshtml" : "razor";
+}
+
 function mapFormatterChanges(
     document: vscode.TextDocument,
     changes: readonly { span: { start: number; length: number }; newText: string }[],
+    sourceLength = document.getText().length,
 ): vscode.TextEdit[] {
     return changes.map(change => {
         const start = change.span.start;
         const length = change.span.length;
         const end = start + length;
-        if (start < 0 || length < 0 || end > document.getText().length) {
+        if (start < 0 || length < 0 || end > sourceLength) {
             throw new RangeError("Formatter returned a change outside the requested document span.");
         }
 

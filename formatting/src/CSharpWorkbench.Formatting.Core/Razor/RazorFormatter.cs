@@ -87,18 +87,46 @@ internal sealed class RazorFormatter(CSharpRoslynFormatter csharpFormatter)
             formattingSource,
             document,
             formattingRange,
-            out var target) ||
-            target.Kind != RazorRangeFormattingTargetKind.EmbeddedCSharp)
+            out var target))
         {
             return FormattingResult.Unchanged;
         }
 
-        var edit = await _embeddedCSharpFormatter.FormatRangeAsync(
-            formattingSource,
-            document,
-            target,
-            csharpOptions,
-            cancellationToken).ConfigureAwait(false);
+        RazorSourceEdit? edit;
+        if (target.Kind == RazorRangeFormattingTargetKind.EmbeddedCSharp)
+        {
+            edit = await _embeddedCSharpFormatter.FormatRangeAsync(
+                formattingSource,
+                document,
+                target,
+                csharpOptions,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var csharpEdits = await _embeddedCSharpFormatter.FormatAsync(
+                formattingSource,
+                document,
+                csharpOptions,
+                cancellationToken).ConfigureAwait(false);
+            var targetCSharpEdits = csharpEdits
+                .Where(candidate => Contains(target.EffectiveSpan, candidate.Span))
+                .ToArray();
+            var formattedTarget = _markupFormatter.FormatRange(
+                formattingSource,
+                document,
+                target,
+                options,
+                csharpOptions,
+                targetCSharpEdits,
+                cancellationToken);
+            var originalTarget = formattingSource.Substring(
+                target.EffectiveSpan.Start,
+                target.EffectiveSpan.Length);
+            edit = string.Equals(originalTarget, formattedTarget, StringComparison.Ordinal)
+                ? null
+                : new RazorSourceEdit(target.EffectiveSpan, formattedTarget);
+        }
         if (edit is null)
         {
             return FormattingResult.Unchanged;
@@ -112,6 +140,11 @@ internal sealed class RazorFormatter(CSharpRoslynFormatter csharpFormatter)
                 new FormattingTextSpan(resolvedEdit.Span.Start + offset, resolvedEdit.Span.Length),
                 resolvedEdit.NewText),
         });
+    }
+
+    private static bool Contains(RazorSourceSpan outer, RazorSourceSpan inner)
+    {
+        return inner.Start >= outer.Start && inner.End <= outer.End;
     }
 
     private static void ValidateRange(string source, RazorSourceSpan range)

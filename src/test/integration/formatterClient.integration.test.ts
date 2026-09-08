@@ -49,6 +49,30 @@ describe("FormatterClient real Formatter integration", () => {
             };
             const first = await client.formatDocument(request);
             const second = await client.formatDocument(request);
+            const razorSource = '<Widget Value = "@(left+right)" />';
+            const selectedStart = razorSource.indexOf("Value");
+            const razorRange = await client.formatRange({
+                language: "razor",
+                source: razorSource,
+                span: { start: selectedStart, length: "Value".length },
+                resolvedEditorConfig: {},
+                editorFallback: {
+                    insertSpaces: true,
+                    tabSize: 4,
+                    lineEnding: "\n" as const,
+                },
+            });
+            const cshtmlRange = await client.formatRange({
+                language: "cshtml",
+                source: razorSource,
+                span: { start: selectedStart, length: "Value".length },
+                resolvedEditorConfig: {},
+                editorFallback: {
+                    insertSpaces: true,
+                    tabSize: 4,
+                    lineEnding: "\n" as const,
+                },
+            });
 
             assert.equal(client.status, "ready");
             assert.equal(client.info?.protocolVersion, 1);
@@ -58,6 +82,10 @@ describe("FormatterClient real Formatter integration", () => {
             assert.equal(first.changes.length, 1);
             assert.match(first.changes[0]!.newText, /class Demo \{/u);
             assert.match(first.changes[0]!.newText, /Run\(int left,int right\)/u);
+            assert.deepEqual(razorRange, cshtmlRange);
+            assert.equal(razorRange.changes.length, 1);
+            assert.equal(razorRange.changes[0]!.newText, '<Widget Value="@(left + right)" />');
+            assert.ok(razorRange.changes[0]!.span.start < selectedStart);
         } finally {
             await client.dispose();
         }

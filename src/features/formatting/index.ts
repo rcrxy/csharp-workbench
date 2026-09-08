@@ -31,8 +31,8 @@ export async function registerFormattingFeature(
         new CSharpDocumentFormattingProvider(log, backend, formatterClient),
     );
     const razorRangeFormattingProvider = vscode.languages.registerDocumentRangeFormattingEditProvider(
-        [{ language: "aspnetcorerazor" }, { language: "razor" }],
-        new RazorDocumentFormattingProvider(log, backend),
+        [{ language: "aspnetcorerazor" }, { language: "razor" }, { language: "cshtml" }],
+        new RazorDocumentFormattingProvider(log, formatterClient ? undefined : backend, formatterClient),
     );
 
     const subscriptions = [log, csharpRangeFormattingProvider, razorRangeFormattingProvider];

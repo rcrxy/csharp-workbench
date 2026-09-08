@@ -57,6 +57,214 @@ public sealed class RazorFormatterTests
         Assert.DoesNotContain("CSharpWorkbenchSnippet", formatted, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("@functions", "string Name=>\"Demo\";", "string Name => \"Demo\";")]
+    [InlineData("@", "var value=left+right;", "var value = left + right;")]
+    public async Task FormatsPartialFunctionsAndExplicitCodeBlocks(
+        string blockPrefix,
+        string selected,
+        string expected)
+    {
+        var source = blockPrefix == "@"
+            ? "@{\nvar first=1;\n" + selected + "\n}"
+            : blockPrefix + " {\nint first=1;\n" + selected + "\n}";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Contains("first=1", formatted, StringComparison.Ordinal);
+        Assert.Contains(expected, formatted, StringComparison.Ordinal);
+        Assert.DoesNotContain("CSharpWorkbenchSnippet", formatted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FormatsControlHeaderWithoutChangingBody()
+    {
+        const string source = "@if(left&&right)\n{\n<span A = \"1\" />\n}";
+        const string selected = "left&&right";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Equal("@if (left && right)\n{\n<span A = \"1\" />\n}", formatted);
+    }
+
+    [Fact]
+    public async Task AttributeExpressionRangeDoesNotReformatOuterTag()
+    {
+        const string source = "<Widget A = \"1\" Icon=\"@(enabled?\"check\":\"cancel\")\" />";
+        const string selected = "enabled?\"check\":\"cancel\"";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Equal("<Widget A = \"1\" Icon=\"@(enabled ? \"check\" : \"cancel\")\" />", formatted);
+    }
+
+    [Fact]
+    public async Task FormatsWholeSelectedTagWithEmbeddedCSharp()
+    {
+        const string source = "<div><Widget Value = \"@(left+right)\" Text = \"value\" /></div>";
+        const string selected = "<Widget Value = \"@(left+right)\" Text = \"value\" />";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Equal(
+            "<div><Widget Value=\"@(left + right)\" Text=\"value\" /></div>",
+            formatted);
+    }
+
+    [Fact]
+    public async Task StartTagSelectionDoesNotFormatElementBodyOrEndTag()
+    {
+        const string source = "<div A = \"1\"><Widget B = \"2\" /></div>";
+        const string selected = "<div A = \"1\">";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Equal("<div A=\"1\"><Widget B = \"2\" /></div>", formatted);
+    }
+
+    [Fact]
+    public async Task FormatsSelectedElementWithoutChangingOuterSource()
+    {
+        const string source = "Prefix <div><span>Value</span><Widget A = \"1\" /></div> suffix";
+        const string selected = "<div><span>Value</span><Widget A = \"1\" /></div>";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.StartsWith("Prefix <div>", formatted, StringComparison.Ordinal);
+        Assert.Contains("\n    <span>Value</span>\n    <Widget A=\"1\" />\n</div>", formatted, StringComparison.Ordinal);
+        Assert.EndsWith(" suffix", formatted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FormatsOnlySelectedSiblingElements()
+    {
+        const string source = "<Parent><A X = \"1\" /><B Y = \"2\" /><C Z = \"3\" /></Parent>";
+        var start = source.IndexOf("<A", StringComparison.Ordinal);
+        var end = source.IndexOf("<C", StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, end - start));
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Equal(
+            "<Parent><A X=\"1\" />\n    <B Y=\"2\" /><C Z = \"3\" /></Parent>",
+            formatted);
+    }
+
+    [Fact]
+    public async Task RangeFormattingPreservesBomAndMapsOffsetsBackToOriginalSource()
+    {
+        const string source = "\uFEFF<span>@(left+right)</span>";
+        const string selected = "left+right";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+        var change = Assert.Single(result.Changes);
+
+        Assert.Equal(start, change.Span.Start);
+        Assert.Equal("left + right", change.NewText);
+        Assert.StartsWith("\uFEFF", ApplyChanges(source, result.Changes), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RangeFormattingDoesNotApplyDocumentNormalizationOptions()
+    {
+        const string source = "<div>  \r\n<Widget A = \"1\" />\r\n</div>  ";
+        const string selected = "<Widget A = \"1\" />";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length),
+            new Dictionary<string, string>
+            {
+                ["end_of_line"] = "lf",
+                ["insert_final_newline"] = "true",
+                ["trim_trailing_whitespace"] = "true",
+            });
+        var formatted = ApplyChanges(source, result.Changes);
+
+        Assert.Equal("<div>  \r\n<Widget A=\"1\" />\r\n</div>  ", formatted);
+    }
+
+    [Theory]
+    [InlineData("@page   \"/demo\"")]
+    [InlineData("<!-- <Fake /> -->")]
+    [InlineData("@* <Fake /> *@")]
+    public async Task StructuralLeafRangeDoesNotInterpretItsContents(string selected)
+    {
+        var source = "<div>\n    " + selected + "\n</div>";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+
+        Assert.Empty(result.Changes);
+    }
+
+    [Theory]
+    [InlineData("<script>const value = \"<Tag>\";</script>", "value")]
+    [InlineData("@code {\nint value=1;\n}\n<div A = \"1\" />", "}\n<div")]
+    public async Task UnsafeRangeTargetsRemainUnchanged(string source, string selected)
+    {
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+
+        Assert.Empty(result.Changes);
+    }
+
+    [Fact]
+    public async Task MarkupRangeFormattingIsIdempotent()
+    {
+        const string source = "<Parent><A X = \"1\" /><B Value = \"@(left+right)\" /></Parent>";
+        const string selected = "<A X = \"1\" /><B Value = \"@(left+right)\" />";
+        var start = source.IndexOf(selected, StringComparison.Ordinal);
+        var onceResult = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(start, selected.Length));
+        var once = ApplyChanges(source, onceResult.Changes);
+        var formattedSelection = "<A X=\"1\" />\n    <B Value=\"@(left + right)\" />";
+        var twiceStart = once.IndexOf(formattedSelection, StringComparison.Ordinal);
+        var twiceResult = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            once,
+            new FormattingTextSpan(twiceStart, formattedSelection.Length));
+
+        Assert.Empty(twiceResult.Changes);
+    }
+
     [Fact]
     public async Task FormatsNestedComponentsAndRemainsIdempotent()
     {

@@ -13,26 +13,96 @@ internal sealed class RazorMarkupFormatter
         IReadOnlyList<RazorSourceEdit> csharpEdits,
         CancellationToken cancellationToken)
     {
+        return FormatCore(
+            source,
+            document,
+            options,
+            csharpOptions,
+            csharpEdits,
+            0,
+            document.Regions.Count,
+            0,
+            0,
+            false,
+            cancellationToken);
+    }
+
+    public string FormatRange(
+        string source,
+        RazorDocumentModel document,
+        RazorRangeFormattingTarget target,
+        RazorFormattingOptions options,
+        CSharpFormattingOptions csharpOptions,
+        IReadOnlyList<RazorSourceEdit> csharpEdits,
+        CancellationToken cancellationToken)
+    {
+        return FormatCore(
+            source,
+            document,
+            options,
+            csharpOptions,
+            csharpEdits,
+            target.StartRegionIndex,
+            target.EndRegionIndex + 1,
+            target.InitialMarkupDepth,
+            target.InitialControlDepth,
+            true,
+            cancellationToken);
+    }
+
+    private static string FormatCore(
+        string source,
+        RazorDocumentModel document,
+        RazorFormattingOptions options,
+        CSharpFormattingOptions csharpOptions,
+        IReadOnlyList<RazorSourceEdit> csharpEdits,
+        int startRegionIndex,
+        int endRegionIndex,
+        int initialMarkupDepth,
+        int initialControlDepth,
+        bool rangeBoundaryMode,
+        CancellationToken cancellationToken)
+    {
         var overlay = new RazorSourceOverlay(source, csharpEdits);
         var regions = document.Regions;
         var matchingEnds = FindMatchingEnds(regions);
         var preserveSourceLayout = AreAllLineBreakRulesDisabled(options.Markup);
-        var formattedTags = FormatTags(source, overlay, regions, options, preserveSourceLayout, cancellationToken);
+        var formattedTags = FormatTags(
+            source,
+            overlay,
+            regions,
+            options,
+            preserveSourceLayout,
+            startRegionIndex,
+            endRegionIndex,
+            initialMarkupDepth,
+            initialControlDepth,
+            cancellationToken);
         if (preserveSourceLayout)
-            return ApplyTagReplacements(source, overlay, regions, formattedTags, 0, regions.Count);
+            return ApplyTagReplacements(
+                source,
+                overlay,
+                regions,
+                formattedTags,
+                startRegionIndex,
+                endRegionIndex);
 
-        var builder = new StringBuilder(source.Length + 64);
-        var markupDepth = 0;
-        var controlDepth = 0;
+        var targetStart = regions[startRegionIndex].Span.Start;
+        var targetEnd = regions[endRegionIndex - 1].Span.End;
+        var builder = new StringBuilder(targetEnd - targetStart + 64);
+        var markupDepth = initialMarkupDepth;
+        var controlDepth = initialControlDepth;
         var previousControlClose = false;
 
-        for (var index = 0; index < regions.Count; index++)
+        for (var index = startRegionIndex; index < endRegionIndex; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var region = regions[index];
             var raw = overlay.GetText(region.Span);
 
-            if (region.Kind == RazorRegionKind.StartTag && matchingEnds.TryGetValue(index, out var endIndex))
+            if (region.Kind == RazorRegionKind.StartTag &&
+                matchingEnds.TryGetValue(index, out var endIndex) &&
+                endIndex < endRegionIndex)
             {
                 var name = region.Name ?? string.Empty;
                 var preserveInner = options.Markup.PreserveSpacesInsideTags.Contains(name);
@@ -201,7 +271,12 @@ internal sealed class RazorMarkupFormatter
             }
         }
 
-        return builder.ToString();
+        var formatted = builder.ToString();
+        return rangeBoundaryMode
+            ? TrimRangeBoundaryFormatting(
+                formatted,
+                GetIndent(initialMarkupDepth + EffectiveControlDepth(initialControlDepth, csharpOptions), options))
+            : formatted;
     }
 
     private static Dictionary<int, string> FormatTags(
@@ -210,12 +285,16 @@ internal sealed class RazorMarkupFormatter
         IReadOnlyList<RazorRegion> regions,
         RazorFormattingOptions options,
         bool preserveSourceLayout,
+        int startRegionIndex,
+        int endRegionIndex,
+        int initialMarkupDepth,
+        int initialControlDepth,
         CancellationToken cancellationToken)
     {
         var result = new Dictionary<int, string>();
-        var markupDepth = 0;
-        var controlDepth = 0;
-        for (var index = 0; index < regions.Count; index++)
+        var markupDepth = initialMarkupDepth;
+        var controlDepth = initialControlDepth;
+        for (var index = startRegionIndex; index < endRegionIndex; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var region = regions[index];
@@ -241,6 +320,23 @@ internal sealed class RazorMarkupFormatter
             }
         }
         return result;
+    }
+
+    private static string TrimRangeBoundaryFormatting(string value, string leadingIndent)
+    {
+        if (leadingIndent.Length > 0 && value.StartsWith(leadingIndent, StringComparison.Ordinal))
+        {
+            value = value.Substring(leadingIndent.Length);
+        }
+
+        if (value.EndsWith("\r\n", StringComparison.Ordinal))
+        {
+            return value.Substring(0, value.Length - 2);
+        }
+
+        return value.EndsWith("\n", StringComparison.Ordinal)
+            ? value.Substring(0, value.Length - 1)
+            : value;
     }
 
     private static string FormatTag(
