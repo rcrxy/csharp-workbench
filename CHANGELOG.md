@@ -11,6 +11,8 @@
 - Add a conservative Razor document formatting provider for safe Markup regions.
 - Bundle the self-contained Formatter runtime in platform-specific Windows x64 and Linux glibc x64 VSIX packages.
 - Run document and selection formatting through the bundled Formatter without requiring a system .NET installation.
+- Declare virtual workspaces unsupported, add host/runtime diagnostics, and document the verified Windows x64 and WSL
+  glibc x64 hosts.
 
 ## [0.0.1] - 2026-08-30
 

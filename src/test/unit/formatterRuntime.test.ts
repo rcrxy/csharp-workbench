@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import {
     createFormatterLaunchSpec,
+    describeFormatterExecutable,
     resolveBundledFormatterTarget,
 } from "../../features/formatting/client/formatterRuntime";
 
@@ -59,5 +60,28 @@ describe("Formatter runtime resolution", () => {
             args: [],
         });
         assert.equal(createFormatterLaunchSpec(extensionPath, false, "linux", "arm64"), undefined);
+    });
+
+    it("describes bundled runtime executables as extension-relative paths", () => {
+        const extensionPath = join("test", "extension");
+
+        assert.equal(
+            describeFormatterExecutable(extensionPath, createFormatterLaunchSpec(extensionPath, false, "linux", "x64")),
+            "runtime/linux-x64/CSharpWorkbench.Formatter",
+        );
+        assert.equal(
+            describeFormatterExecutable(extensionPath, createFormatterLaunchSpec(extensionPath, false, "win32", "x64")),
+            "runtime/win32-x64/CSharpWorkbench.Formatter.exe",
+        );
+    });
+
+    it("does not leak absolute paths for development or unsupported runtimes", () => {
+        const extensionPath = join("test", "extension");
+
+        assert.equal(
+            describeFormatterExecutable(extensionPath, createFormatterLaunchSpec(extensionPath, true, "darwin", "arm64")),
+            "dotnet",
+        );
+        assert.equal(describeFormatterExecutable(extensionPath, undefined), "unsupported");
     });
 });

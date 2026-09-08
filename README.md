@@ -64,9 +64,26 @@ Release packages include a self-contained Formatter runtime, so formatting does 
 installation or a separately installed `dotnet` tool. Install the VSIX that matches the workspace extension host:
 
 - `win32-x64` for Windows x64.
-- `linux-x64` for glibc-based Linux x64, including conventional WSL, Remote SSH, and Dev Container hosts.
+- `linux-x64` for glibc-based Linux x64.
 
-macOS, ARM, and Alpine Linux hosts are not supported by the 0.2.0 bundled runtime.
+Verified hosts for 0.2.0 are Windows x64 and WSL2 glibc x64 (Ubuntu 24.04). The same runtime architecture supports
+glibc x64 Remote SSH and Dev Container hosts, but those are not yet part of the 0.2.0 verification matrix.
+
+macOS, ARM, and Alpine Linux (musl) hosts are not supported by the 0.2.0 bundled runtime.
+
+## Remote And Virtual Workspaces
+
+The extension declares `extensionKind: ["workspace"]`, so it runs in the workspace extension host. In a WSL, Remote
+SSH, or Dev Container window, that host is the remote machine and the Formatter runtime is resolved from
+`process.platform` and `process.arch` on that host. Formatting uses the remote workspace `.editorconfig` and the
+bundled remote Formatter; no path conversion or local host forwarding is involved.
+
+Virtual Workspaces (`vscode-vfs` and similar) are not supported. Formatting launches a bundled native process, and
+file creation uses the local file system and MSBuild.
+
+The **C# Workbench** output channel logs `runtimeMode`, `hostPlatform`, `hostArch`, `runtimeTarget`, and the
+extension-relative `runtimeExecutable` on activation, followed by the Formatter version, protocol version, and
+languages once the Formatter is ready.
 
 ## Project Structure
 

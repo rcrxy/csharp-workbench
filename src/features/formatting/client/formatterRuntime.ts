@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, isAbsolute, join, relative, sep } from "node:path";
 import type { FormatterLaunchSpec } from "./formatterProtocol";
 
 export interface BundledFormatterTarget {
@@ -57,4 +57,20 @@ export function createFormatterLaunchSpec(
         command: join(extensionPath, "runtime", bundledTarget.target, bundledTarget.executable),
         args: [],
     };
+}
+
+/**
+ * 生成用于诊断的 Formatter 可执行文件描述，只暴露扩展目录内的相对路径。
+ */
+export function describeFormatterExecutable(extensionPath: string, launch: FormatterLaunchSpec | undefined): string {
+    if (!launch) {
+        return "unsupported";
+    }
+
+    const relativeCommand = relative(extensionPath, launch.command);
+    if (relativeCommand && !relativeCommand.startsWith("..") && !isAbsolute(relativeCommand)) {
+        return relativeCommand.split(sep).join("/");
+    }
+
+    return basename(launch.command);
 }

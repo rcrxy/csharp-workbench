@@ -13,6 +13,12 @@
     "extensionKind": [
         "workspace"
     ],
+    "capabilities": {
+        "virtualWorkspaces": {
+            "supported": false,
+            "description": "Formatting launches a bundled native Formatter and file creation uses the local file system and MSBuild."
+        }
+    },
     "categories": [
         "Formatters",
         "Other"

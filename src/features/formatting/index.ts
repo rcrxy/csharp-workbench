@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import { FormatterClient } from "./client/formatterClient";
-import { createFormatterLaunchSpec, resolveBundledFormatterTarget } from "./client/formatterRuntime";
+import {
+    createFormatterLaunchSpec,
+    describeFormatterExecutable,
+    resolveBundledFormatterTarget,
+} from "./client/formatterRuntime";
 import { CSharpDocumentFormattingProvider } from "./providers/csharpDocumentFormattingProvider";
 import { RazorDocumentFormattingProvider } from "./providers/razorDocumentFormattingProvider";
 
@@ -15,7 +19,8 @@ export async function registerFormattingFeature(context: vscode.ExtensionContext
     log.info(
         `Formatter runtime resolved: runtimeMode=${development ? "development" : "bundled"}, ` +
             `hostPlatform=${process.platform}, hostArch=${process.arch}, ` +
-            `runtimeTarget=${development ? "repository" : (bundledTarget?.target ?? "unsupported")}.`,
+            `runtimeTarget=${development ? "repository" : (bundledTarget?.target ?? "unsupported")}, ` +
+            `runtimeExecutable=${describeFormatterExecutable(context.extensionUri.fsPath, formatterLaunch)}.`,
     );
 
     if (!formatterLaunch) {
