@@ -13,6 +13,11 @@ internal sealed class RazorDocumentScanner
         "if", "for", "foreach", "while", "switch", "try", "using", "lock", "do",
     };
 
+    private static readonly HashSet<string> InlineControlKeywords = new(StringComparer.Ordinal)
+    {
+        "if", "for", "foreach", "while", "switch", "try", "using", "lock", "do",
+    };
+
     private static readonly HashSet<string> DirectiveKeywords = new(StringComparer.OrdinalIgnoreCase)
     {
         "page", "model", "using", "inject", "inherits", "implements", "layout", "namespace",
@@ -237,6 +242,28 @@ internal sealed class RazorDocumentScanner
                 {
                     Add(regions, RazorRegionKind.Text, cursor, contentStart - cursor);
                     cursor = contentStart;
+                    continue;
+                }
+            }
+
+            if (source[cursor] == '@')
+            {
+                var inlineControlStatus = TryScanInlineControl(
+                    source,
+                    cursor,
+                    out var inlineControlEnd,
+                    out var inlineControl);
+                if (inlineControlStatus == InlineControlScanStatus.UnsafeControlCandidate)
+                    return Unreliable(regions);
+                if (inlineControlStatus == InlineControlScanStatus.SafeControl)
+                {
+                    Add(
+                        regions,
+                        RazorRegionKind.InlineControl,
+                        cursor,
+                        inlineControlEnd - cursor,
+                        control: inlineControl);
+                    cursor = inlineControlEnd;
                     continue;
                 }
             }
@@ -603,6 +630,176 @@ internal sealed class RazorDocumentScanner
         return true;
     }
 
+    private static InlineControlScanStatus TryScanInlineControl(
+        string source,
+        int start,
+        out int end,
+        out RazorControlMetadata metadata)
+    {
+        end = 0;
+        metadata = null!;
+        if (start + 1 >= source.Length || !IsIdentifierStart(source[start + 1]))
+            return InlineControlScanStatus.NotControl;
+
+        var keyword = ReadRazorKeyword(source, start + 1);
+        if (!InlineControlKeywords.Contains(keyword))
+            return InlineControlScanStatus.NotControl;
+        if (string.Equals(keyword, "try", StringComparison.Ordinal) ||
+            string.Equals(keyword, "do", StringComparison.Ordinal))
+        {
+            return InlineControlScanStatus.UnsafeControlCandidate;
+        }
+
+        var lineEnd = TrimLineEndingStart(source, start, FindLineEnd(source, start));
+        var cursor = start + 1 + keyword.Length;
+        while (cursor < lineEnd && (source[cursor] == ' ' || source[cursor] == '\t'))
+            cursor++;
+        if (cursor >= lineEnd || source[cursor] != '(' ||
+            !TryScanBalancedCSharp(source, cursor, '(', ')', out var headerEnd) ||
+            headerEnd > lineEnd)
+        {
+            return InlineControlScanStatus.UnsafeControlCandidate;
+        }
+
+        cursor = headerEnd;
+        while (cursor < lineEnd && (source[cursor] == ' ' || source[cursor] == '\t'))
+            cursor++;
+        if (cursor >= lineEnd || source[cursor] != '{' ||
+            !TryScanInlineControlBlock(source, cursor, lineEnd, out end))
+        {
+            return InlineControlScanStatus.UnsafeControlCandidate;
+        }
+
+        var continuationStart = end;
+        while (continuationStart < lineEnd &&
+            (source[continuationStart] == ' ' || source[continuationStart] == '\t'))
+        {
+            continuationStart++;
+        }
+        if (continuationStart < lineEnd && IsIdentifierStart(source[continuationStart]))
+        {
+            var continuation = ReadRazorKeyword(source, continuationStart);
+            if (string.Equals(continuation, "else", StringComparison.Ordinal) ||
+                string.Equals(continuation, "catch", StringComparison.Ordinal) ||
+                string.Equals(continuation, "finally", StringComparison.Ordinal) ||
+                string.Equals(continuation, "while", StringComparison.Ordinal))
+            {
+                return InlineControlScanStatus.UnsafeControlCandidate;
+            }
+        }
+
+        metadata = CreateControlMetadata(source, start, end, keyword, true);
+        return InlineControlScanStatus.SafeControl;
+    }
+
+    private static bool TryScanInlineControlBlock(string source, int start, int lineEnd, out int end)
+    {
+        end = 0;
+        var depth = 0;
+        var cursor = start;
+        var markupElements = new Stack<string>();
+        while (cursor < lineEnd)
+        {
+            var current = source[cursor];
+            if (current == '/' && cursor + 1 < lineEnd && source[cursor + 1] == '/')
+                return false;
+            if (current == '/' && cursor + 1 < lineEnd && source[cursor + 1] == '*')
+            {
+                var commentEnd = source.IndexOf("*/", cursor + 2, StringComparison.Ordinal);
+                if (commentEnd < 0 || commentEnd + 2 > lineEnd)
+                    return false;
+                cursor = commentEnd + 2;
+                continue;
+            }
+            if (current == '@' && cursor + 1 < lineEnd && source[cursor + 1] == '*')
+            {
+                var commentEnd = source.IndexOf("*@", cursor + 2, StringComparison.Ordinal);
+                if (commentEnd < 0 || commentEnd + 2 > lineEnd)
+                    return false;
+                cursor = commentEnd + 2;
+                continue;
+            }
+            if (current == '<')
+            {
+                if (source.AsSpan(cursor).StartsWith("<!--".AsSpan(), StringComparison.Ordinal))
+                {
+                    var commentEnd = source.IndexOf("-->", cursor + 4, StringComparison.Ordinal);
+                    if (commentEnd < 0 || commentEnd + 3 > lineEnd)
+                        return false;
+                    cursor = commentEnd + 3;
+                    continue;
+                }
+                if (!TryScanTag(source, cursor, out var tag) || tag.End > lineEnd)
+                    return false;
+                if (!tag.IsDeclaration)
+                {
+                    if (tag.IsClosing)
+                    {
+                        if (markupElements.Count == 0 ||
+                            !string.Equals(markupElements.Peek(), tag.Name, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false;
+                        }
+                        markupElements.Pop();
+                    }
+                    else if (!tag.IsSelfClosing && !VoidElementNames.Contains(tag.Name))
+                    {
+                        markupElements.Push(tag.Name);
+                    }
+                }
+                cursor = tag.End;
+                continue;
+            }
+            if (current == '@' && cursor + 1 < lineEnd && source[cursor + 1] == '"')
+            {
+                if (!SkipQuoted(source, cursor + 1, '"', true, out cursor) || cursor > lineEnd)
+                    return false;
+                continue;
+            }
+            if (current == '"')
+            {
+                var quoteCount = CountRepeated(source, cursor, '"');
+                if (quoteCount >= 3)
+                {
+                    var rawEnd = source.IndexOf(new string('"', quoteCount), cursor + quoteCount, StringComparison.Ordinal);
+                    if (rawEnd < 0 || rawEnd + quoteCount > lineEnd)
+                        return false;
+                    cursor = rawEnd + quoteCount;
+                    continue;
+                }
+                if (!SkipQuoted(source, cursor, '"', false, out cursor) || cursor > lineEnd)
+                    return false;
+                continue;
+            }
+            if (current == '\'')
+            {
+                if (!SkipQuoted(source, cursor, '\'', false, out cursor) || cursor > lineEnd)
+                    return false;
+                continue;
+            }
+            if (current == '@' && TryScanRazorExpression(source, cursor, out var expressionEnd) &&
+                expressionEnd <= lineEnd)
+            {
+                cursor = expressionEnd;
+                continue;
+            }
+            if (markupElements.Count > 0)
+            {
+                cursor++;
+                continue;
+            }
+            if (current == '{')
+                depth++;
+            else if (current == '}' && --depth == 0)
+            {
+                end = cursor + 1;
+                return true;
+            }
+            cursor++;
+        }
+        return false;
+    }
+
     private static bool TryScanBalancedCSharp(string source, int start, char open, char close, out int end)
     {
         end = 0;
@@ -848,5 +1045,12 @@ internal sealed class RazorDocumentScanner
         public bool IsSelfClosing { get; } = isSelfClosing;
         public bool IsDeclaration { get; } = isDeclaration;
         public RazorTagMetadata? Metadata { get; } = metadata;
+    }
+
+    private enum InlineControlScanStatus
+    {
+        NotControl,
+        SafeControl,
+        UnsafeControlCandidate,
     }
 }

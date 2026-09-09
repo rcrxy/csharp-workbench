@@ -147,6 +147,7 @@ wins.
 | `html_linebreak_before_multiline_elements`                     | `true`, `false`                                                                          | `true`           | Places multiline elements on a new line.                                                                               |
 | `html_linebreaks_inside_tags_for_multiline_elements`           | `true`, `false`                                                                          | `true`           | Places multiline element content between line breaks.                                                                  |
 | `html_linebreaks_inside_tags_for_elements_with_child_elements` | `true`, `false`                                                                          | `true`           | Places child elements and the parent closing tag on separate lines when the parent has no direct text.                 |
+| `html_linebreaks_around_razor_statements`                      | `true`, `false`                                                                          | `false`          | Ensures line breaks around reliable, complete same-line inline Razor controls when enabled; `false` preserves their existing boundaries. |
 | `html_no_indent_inside_elements`                               | Comma-separated element names                                                            | `pre,textarea`   | Prevents indentation changes inside the listed elements.                                                               |
 | `html_preserve_spaces_inside_tags`                             | Comma-separated element names                                                            | `pre,textarea`   | Preserves the complete contents of the listed elements.                                                                |
 | `html_extra_spaces`                                            | `remove_all`, `leave_tabs`, `leave_multiple`, `leave_all`                                | `remove_all`     | Removes redundant horizontal tag whitespace for `remove_all`; the `leave_*` values preserve existing extra whitespace. |
@@ -187,6 +188,12 @@ html_tab_width = 4
 
 Razor directives, tags, attributes, control blocks, embedded C#, and range classification share a source-preserving
 `RazorDocumentModel`. Embedded C# regions are formatted with Roslyn.
+
+`html_linebreaks_around_razor_statements` also accepts the
+`resharper_html_linebreaks_around_razor_statements` compatibility form, with the unprefixed property taking priority.
+Its current safe scope is complete same-line inline `if`, `for`, `foreach`, `while`, `switch`, `using`, and `lock`
+controls. Continuation chains such as `else`, `catch`, and `finally`, `do`/`while`, and multiline inline controls are
+left unchanged rather than interpreted as a complete inline statement.
 
 #### HTML Resolution Priority
 

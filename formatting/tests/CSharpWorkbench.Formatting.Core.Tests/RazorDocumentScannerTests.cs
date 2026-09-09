@@ -84,6 +84,95 @@ public sealed class RazorDocumentScannerTests
         Assert.Contains(RazorProtectedKind.RazorExpression, protectedKinds);
     }
 
+    [Fact]
+    public void CapturesCompleteInlineControlAsDedicatedRegion()
+    {
+        const string source = "something @if(a == 1) { @: SomeText } something";
+        var model = new RazorDocumentScanner().Scan(source, RazorDocumentKind.Component, default);
+
+        Assert.True(model.IsReliable);
+        Assert.Equal(
+            new[] { RazorRegionKind.Text, RazorRegionKind.InlineControl, RazorRegionKind.Text },
+            model.Regions.Select(region => region.Kind));
+        var controlRegion = model.Regions[1];
+        Assert.Equal("@if(a == 1) { @: SomeText }", Slice(source, controlRegion.Span));
+        Assert.Equal(RazorControlKind.If, controlRegion.Control!.Kind);
+        Assert.Equal("if(a == 1) ", Slice(source, controlRegion.Control.CSharpHeaderSpan!.Value));
+        Assert.DoesNotContain(
+            model.Regions,
+            region => region.Protected?.Kind == RazorProtectedKind.RazorExpression);
+    }
+
+    [Theory]
+    [InlineData("for", "var i = 0; i < 1; i++")]
+    [InlineData("foreach", "var item in items")]
+    [InlineData("while", "ready")]
+    [InlineData("switch", "value")]
+    [InlineData("using", "resource")]
+    [InlineData("lock", "gate")]
+    public void CapturesSupportedInlineControls(string keyword, string header)
+    {
+        var source = $"before @{keyword} ({header}) {{ @: body }} after";
+        var model = new RazorDocumentScanner().Scan(source, RazorDocumentKind.Component, default);
+
+        Assert.True(model.IsReliable);
+        Assert.Contains(model.Regions, region => region.Kind == RazorRegionKind.InlineControl);
+    }
+
+    [Theory]
+    [InlineData("hello @Model.Name")]
+    [InlineData("hello @GetValue()")]
+    [InlineData("hello @(left+right)")]
+    [InlineData("hello @ifModel")]
+    [InlineData("hello @foreachItem")]
+    [InlineData("hello @If(value)")]
+    public void OrdinaryExpressionsAndIdentifierPrefixesAreNotInlineControls(string source)
+    {
+        var model = new RazorDocumentScanner().Scan(source, RazorDocumentKind.Component, default);
+
+        Assert.True(model.IsReliable);
+        Assert.DoesNotContain(model.Regions, region => region.Kind == RazorRegionKind.InlineControl);
+        Assert.Contains(
+            model.Regions,
+            region => region.Protected?.Kind == RazorProtectedKind.RazorExpression);
+    }
+
+    [Fact]
+    public void InlineControlBlockIgnoresQuotedAndNestedMarkupBraces()
+    {
+        const string source = "before @if (ok) { var a = \"{ }\"; var b = @\"{ }\"; var c = \"\"\"{ }\"\"\"; <span data-value=\"@(() => new Item { Name = \"A\" })\">{literal}</span> } after";
+        var model = new RazorDocumentScanner().Scan(source, RazorDocumentKind.Component, default);
+
+        Assert.True(model.IsReliable);
+        Assert.Equal(RazorRegionKind.InlineControl, model.Regions[1].Kind);
+        Assert.EndsWith("</span> }", Slice(source, model.Regions[1].Span), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("before @if (ok) { @: yes } else { @: no } after")]
+    [InlineData("before @if (ok) {\n@: yes\n} after")]
+    [InlineData("before @try { @: yes } after")]
+    [InlineData("before @do { @: yes } while (ok); after")]
+    public void UnsafeInlineControlCandidatesMakeDocumentUnreliable(string source)
+    {
+        var model = new RazorDocumentScanner().Scan(source, RazorDocumentKind.Component, default);
+
+        Assert.False(model.IsReliable);
+        Assert.DoesNotContain(
+            model.Regions,
+            region => region.Protected?.Kind == RazorProtectedKind.RazorExpression);
+    }
+
+    [Fact]
+    public void CommentsAndScriptDoNotProduceInlineControls()
+    {
+        const string source = "@* before @if(a) { } after *@\n<!-- before @if(a) { } after -->\n<script>const text = \"@if(a) { }\";</script>";
+        var model = new RazorDocumentScanner().Scan(source, RazorDocumentKind.Component, default);
+
+        Assert.True(model.IsReliable);
+        Assert.DoesNotContain(model.Regions, region => region.Kind == RazorRegionKind.InlineControl);
+    }
+
     private static string Slice(string source, RazorSourceSpan span)
     {
         return source.Substring(span.Start, span.Length);

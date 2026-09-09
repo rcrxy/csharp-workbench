@@ -10,6 +10,7 @@ internal enum RazorRegionKind
     RazorComment,
     Directive,
     ControlHeader,
+    InlineControl,
     ControlOpenBrace,
     ControlCloseBrace,
     CodeBlock,

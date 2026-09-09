@@ -224,7 +224,8 @@ internal sealed class RazorEmbeddedCSharpFormatter(CSharpRoslynFormatter csharpF
         ICollection<RazorSourceEdit> edits,
         CancellationToken cancellationToken)
     {
-        var original = source.Substring(span.Start, span.Length).TrimEnd();
+        var originalWithTrailingWhitespace = source.Substring(span.Start, span.Length);
+        var original = originalWithTrailingWhitespace.TrimEnd();
         string synthetic;
         string extractionMarker;
         switch (control.Kind)
@@ -270,8 +271,9 @@ internal sealed class RazorEmbeddedCSharpFormatter(CSharpRoslynFormatter csharpF
                 formattedHeader = formattedHeader.TrimEnd(';').TrimEnd() + ";";
             if (HasDifferentLineBreakShape(original, formattedHeader))
                 return;
-            if (!string.Equals(original, formattedHeader, StringComparison.Ordinal))
-                edits.Add(new RazorSourceEdit(span, formattedHeader));
+            var replacement = formattedHeader + originalWithTrailingWhitespace.Substring(original.Length);
+            if (!string.Equals(originalWithTrailingWhitespace, replacement, StringComparison.Ordinal))
+                edits.Add(new RazorSourceEdit(span, replacement));
         }
         catch (FormattingException exception) when (
             exception.Code is FormattingErrorCode.ParseFailure or FormattingErrorCode.FormattingFailure)
@@ -281,11 +283,83 @@ internal sealed class RazorEmbeddedCSharpFormatter(CSharpRoslynFormatter csharpF
 
     private static int FindHeaderEnd(string source, int start)
     {
-        var brace = source.IndexOf('{', start);
-        var semicolon = source.IndexOf(';', start);
-        if (semicolon >= 0 && (brace < 0 || semicolon < brace))
-            return semicolon + 1;
-        return brace >= 0 ? brace : source.Length;
+        for (var cursor = start; cursor < source.Length; cursor++)
+        {
+            var current = source[cursor];
+            if (current == '/' && cursor + 1 < source.Length && source[cursor + 1] == '/')
+                return source.Length;
+            if (current == '/' && cursor + 1 < source.Length && source[cursor + 1] == '*')
+            {
+                var commentEnd = source.IndexOf("*/", cursor + 2, StringComparison.Ordinal);
+                if (commentEnd < 0)
+                    return source.Length;
+                cursor = commentEnd + 1;
+                continue;
+            }
+            if (current == '@' && cursor + 1 < source.Length && source[cursor + 1] == '"')
+            {
+                if (!SkipQuoted(source, cursor + 1, '"', true, out cursor))
+                    return source.Length;
+                cursor--;
+                continue;
+            }
+            if (current == '"')
+            {
+                var quoteCount = CountRepeated(source, cursor, '"');
+                if (quoteCount >= 3)
+                {
+                    var rawEnd = source.IndexOf(new string('"', quoteCount), cursor + quoteCount, StringComparison.Ordinal);
+                    if (rawEnd < 0)
+                        return source.Length;
+                    cursor = rawEnd + quoteCount - 1;
+                    continue;
+                }
+                if (!SkipQuoted(source, cursor, '"', false, out cursor))
+                    return source.Length;
+                cursor--;
+                continue;
+            }
+            if (current == '\'')
+            {
+                if (!SkipQuoted(source, cursor, '\'', false, out cursor))
+                    return source.Length;
+                cursor--;
+                continue;
+            }
+            if (current == '{')
+                return cursor;
+            if (current == ';')
+                return cursor + 1;
+        }
+        return source.Length;
+    }
+
+    private static bool SkipQuoted(string source, int quoteStart, char quote, bool verbatim, out int cursor)
+    {
+        cursor = quoteStart + 1;
+        while (cursor < source.Length)
+        {
+            if (source[cursor] == quote)
+            {
+                if (verbatim && cursor + 1 < source.Length && source[cursor + 1] == quote)
+                {
+                    cursor += 2;
+                    continue;
+                }
+                cursor++;
+                return true;
+            }
+            cursor += !verbatim && source[cursor] == '\\' ? 2 : 1;
+        }
+        return false;
+    }
+
+    private static int CountRepeated(string source, int start, char value)
+    {
+        var cursor = start;
+        while (cursor < source.Length && source[cursor] == value)
+            cursor++;
+        return cursor - start;
     }
 
     private static string ApplyChanges(string source, IReadOnlyList<CSharpTextChange> changes)

@@ -70,6 +70,36 @@ public sealed class RazorRangeFormattingTargetResolverTests
         Assert.False(TryResolve(malformed, SpanOf(malformed, "<span>"), out _));
     }
 
+    [Fact]
+    public void InlineControlHeaderSelectionResolvesEmbeddedCSharp()
+    {
+        const string source = "before @if(a==1) { @: x } after";
+
+        Assert.True(TryResolve(source, SpanOf(source, "a==1"), out var target));
+        Assert.Equal(RazorRangeFormattingTargetKind.EmbeddedCSharp, target.Kind);
+        Assert.Equal("if(a==1) ", Slice(source, target.EffectiveSpan));
+    }
+
+    [Fact]
+    public void CompleteInlineControlSelectionResolvesStructuralLeafWithoutAdjacentText()
+    {
+        const string source = "before @if(a==1) { @: x } after";
+
+        Assert.True(TryResolve(source, SpanOf(source, "@if(a==1) { @: x }"), out var target));
+        Assert.Equal(RazorRangeFormattingTargetKind.StructuralLeaf, target.Kind);
+        Assert.Equal("@if(a==1) { @: x }", Slice(source, target.EffectiveSpan));
+    }
+
+    [Fact]
+    public void ContainingElementSelectionIncludesInlineControlAndAdjacentText()
+    {
+        const string source = "<div>before @if(a==1) { @: x } after</div>";
+
+        Assert.True(TryResolve(source, new RazorSourceSpan(0, source.Length), out var target));
+        Assert.Equal(RazorRangeFormattingTargetKind.MarkupStructure, target.Kind);
+        Assert.Equal(source, Slice(source, target.EffectiveSpan));
+    }
+
     private static bool TryResolve(
         string source,
         RazorSourceSpan requested,

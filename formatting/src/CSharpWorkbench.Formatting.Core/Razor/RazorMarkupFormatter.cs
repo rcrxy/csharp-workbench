@@ -79,13 +79,17 @@ internal sealed class RazorMarkupFormatter
             initialControlDepth,
             cancellationToken);
         if (preserveSourceLayout)
-            return ApplyTagReplacements(
+            return ApplySourcePreservingReplacements(
                 source,
                 overlay,
                 regions,
                 formattedTags,
                 startRegionIndex,
-                endRegionIndex);
+                endRegionIndex,
+                initialMarkupDepth,
+                initialControlDepth,
+                options,
+                csharpOptions);
 
         var targetStart = regions[startRegionIndex].Span.Start;
         var targetEnd = regions[endRegionIndex - 1].Span.End;
@@ -99,6 +103,33 @@ internal sealed class RazorMarkupFormatter
             cancellationToken.ThrowIfCancellationRequested();
             var region = regions[index];
             var raw = overlay.GetText(region.Span);
+
+            if ((region.Kind == RazorRegionKind.Text &&
+                    index + 1 < endRegionIndex &&
+                    regions[index + 1].Kind == RazorRegionKind.InlineControl) ||
+                region.Kind == RazorRegionKind.InlineControl)
+            {
+                var runEnd = index + 1;
+                while (runEnd < endRegionIndex &&
+                    regions[runEnd].Kind is RazorRegionKind.Text or RazorRegionKind.InlineControl)
+                {
+                    runEnd++;
+                }
+                builder.Append(ApplySourcePreservingReplacements(
+                    source,
+                    overlay,
+                    regions,
+                    formattedTags,
+                    index,
+                    runEnd,
+                    markupDepth,
+                    controlDepth,
+                    options,
+                    csharpOptions));
+                index = runEnd - 1;
+                previousControlClose = false;
+                continue;
+            }
 
             if (region.Kind == RazorRegionKind.StartTag &&
                 matchingEnds.TryGetValue(index, out var endIndex) &&
@@ -127,7 +158,17 @@ internal sealed class RazorMarkupFormatter
                     AppendStructuralValue(
                         builder,
                         GetIndent(markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options),
-                        ApplyTagReplacements(source, overlay, regions, formattedTags, index, endIndex + 1));
+                        ApplySourcePreservingReplacements(
+                            source,
+                            overlay,
+                            regions,
+                            formattedTags,
+                            index,
+                            endIndex + 1,
+                            markupDepth,
+                            controlDepth,
+                            options,
+                            csharpOptions));
                     index = endIndex;
                     continue;
                 }
@@ -166,7 +207,17 @@ internal sealed class RazorMarkupFormatter
                     AppendStructuralValue(
                         builder,
                         GetIndent(markupDepth + controlDepth, options),
-                        ApplyTagReplacements(source, overlay, regions, formattedTags, index, endIndex + 1));
+                        ApplySourcePreservingReplacements(
+                            source,
+                            overlay,
+                            regions,
+                            formattedTags,
+                            index,
+                            endIndex + 1,
+                            markupDepth,
+                            controlDepth,
+                            options,
+                            csharpOptions));
                     index = endIndex;
                     continue;
                 }
@@ -202,6 +253,13 @@ internal sealed class RazorMarkupFormatter
                         csharpOptions);
                     if (region.Control?.IsInlineComplete == false && raw.IndexOf('{') >= 0)
                         controlDepth++;
+                    previousControlClose = false;
+                    break;
+                case RazorRegionKind.InlineControl:
+                    AppendStructuralValue(
+                        builder,
+                        GetIndent(markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options),
+                        raw.TrimStart());
                     previousControlClose = false;
                     break;
                 case RazorRegionKind.ControlOpenBrace:
@@ -618,10 +676,20 @@ internal sealed class RazorMarkupFormatter
             if (region.Kind == RazorRegionKind.EndTag)
                 depth--;
 
-            if (!formattedTags.TryGetValue(index, out var formatted))
-                continue;
-
             builder.Append(overlay.GetText(cursor, region.Span.Start - cursor));
+            var formatted = formattedTags.TryGetValue(index, out var formattedTag)
+                ? formattedTag
+                : overlay.GetText(region.Span);
+            if (region.Kind == RazorRegionKind.InlineControl)
+                formatted = GetInlineControlText(overlay, region);
+            if (options.LineBreaksAroundRazorStatements && region.Kind == RazorRegionKind.Text)
+            {
+                var indent = GetIndent(outerDepth + depth, options);
+                if (index + 1 <= endIndex && regions[index + 1].Kind == RazorRegionKind.InlineControl)
+                    formatted = EnsureLineBreakBeforeInlineControl(formatted, indent, options.LineEnding);
+                if (index > startIndex && regions[index - 1].Kind == RazorRegionKind.InlineControl)
+                    formatted = EnsureLineBreakAfterInlineControl(formatted, indent, options.LineEnding);
+            }
             var isTopLevelChild = index > startIndex && depth == 1 &&
                 region.Kind is RazorRegionKind.StartTag or RazorRegionKind.SelfClosingTag;
             var shouldBreak = isTopLevelChild &&
@@ -646,13 +714,17 @@ internal sealed class RazorMarkupFormatter
         return builder.ToString();
     }
 
-    private static string ApplyTagReplacements(
+    private static string ApplySourcePreservingReplacements(
         string source,
         RazorSourceOverlay overlay,
         IReadOnlyList<RazorRegion> regions,
         IReadOnlyDictionary<int, string> formattedTags,
         int startIndex,
-        int endIndex)
+        int endIndex,
+        int initialMarkupDepth,
+        int initialControlDepth,
+        RazorFormattingOptions options,
+        CSharpFormattingOptions csharpOptions)
     {
         if (startIndex >= endIndex)
             return string.Empty;
@@ -661,17 +733,80 @@ internal sealed class RazorMarkupFormatter
         var end = regions[endIndex - 1].Span.End;
         var builder = new StringBuilder(end - start + 32);
         var cursor = start;
+        var markupDepth = initialMarkupDepth;
+        var controlDepth = initialControlDepth;
         for (var index = startIndex; index < endIndex; index++)
         {
             var region = regions[index];
-            if (!formattedTags.TryGetValue(index, out var formatted))
-                continue;
+            if (region.Kind == RazorRegionKind.EndTag)
+                markupDepth = Math.Max(0, markupDepth - 1);
+            else if (region.Kind == RazorRegionKind.ControlCloseBrace)
+                controlDepth = Math.Max(0, controlDepth - 1);
+
             builder.Append(overlay.GetText(cursor, region.Span.Start - cursor));
-            builder.Append(formatted);
+            var value = formattedTags.TryGetValue(index, out var formatted)
+                ? formatted
+                : overlay.GetText(region.Span);
+            if (region.Kind == RazorRegionKind.InlineControl)
+                value = GetInlineControlText(overlay, region);
+            var indent = GetIndent(
+                markupDepth + EffectiveControlDepth(controlDepth, csharpOptions),
+                options);
+            if (options.LineBreaksAroundRazorStatements && region.Kind == RazorRegionKind.Text)
+            {
+                if (index + 1 < endIndex && regions[index + 1].Kind == RazorRegionKind.InlineControl)
+                    value = EnsureLineBreakBeforeInlineControl(value, indent, options.LineEnding);
+                if (index > startIndex && regions[index - 1].Kind == RazorRegionKind.InlineControl)
+                    value = EnsureLineBreakAfterInlineControl(value, indent, options.LineEnding);
+            }
+            builder.Append(value);
             cursor = region.Span.End;
+
+            if (region.Kind == RazorRegionKind.StartTag)
+                markupDepth++;
+            else if (region.Kind == RazorRegionKind.ControlOpenBrace ||
+                region.Kind == RazorRegionKind.ControlHeader &&
+                region.Control?.IsInlineComplete == false &&
+                Slice(source, region.Span).IndexOf('{') >= 0)
+            {
+                controlDepth++;
+            }
         }
         builder.Append(overlay.GetText(cursor, end - cursor));
         return builder.ToString();
+    }
+
+    private static string GetInlineControlText(RazorSourceOverlay overlay, RazorRegion region)
+    {
+        if (region.Control is not RazorControlMetadata control)
+            return overlay.GetText(region.Span);
+
+        var headerLength = control.HeaderSpan.End - region.Span.Start;
+        var header = overlay.GetText(region.Span.Start, headerLength);
+        var body = overlay.GetText(control.HeaderSpan.End, region.Span.End - control.HeaderSpan.End);
+        return header.Length > 0 && header[header.Length - 1] is not ' ' and not '\t'
+            ? header + " " + body
+            : header + body;
+    }
+
+    private static string EnsureLineBreakBeforeInlineControl(string value, string indent, string lineEnding)
+    {
+        var contentEnd = value.Length;
+        while (contentEnd > 0 && value[contentEnd - 1] is ' ' or '\t')
+            contentEnd--;
+        if (contentEnd == 0 || value[contentEnd - 1] is '\r' or '\n')
+            return value;
+        return value.Substring(0, contentEnd) + lineEnding + indent;
+    }
+
+    private static string EnsureLineBreakAfterInlineControl(string value, string indent, string lineEnding)
+    {
+        var contentStart = 0;
+        while (contentStart < value.Length && value[contentStart] is ' ' or '\t')
+            contentStart++;
+        if (contentStart == value.Length || value[contentStart] is '\r' or '\n')
+            return value;
+        return lineEnding + indent + value.Substring(contentStart);
     }
 
     private static void AppendStructuralValue(StringBuilder builder, string indent, string value)

@@ -82,5 +82,7 @@ internal sealed class RazorFormattingOptions
 
     public int? BlankLinesAroundFunctions { get; set; }
 
+    public bool LineBreaksAroundRazorStatements { get; set; }
+
     public RazorMarkupFormattingOptions Markup { get; } = new();
 }

@@ -93,7 +93,8 @@ internal static class RazorRangeFormattingTargetResolver
         for (var index = 0; index < document.Regions.Count; index++)
         {
             var region = document.Regions[index];
-            if (region.Kind is RazorRegionKind.Directive or RazorRegionKind.HtmlComment or RazorRegionKind.RazorComment &&
+            if (region.Kind is RazorRegionKind.Directive or RazorRegionKind.HtmlComment or
+                    RazorRegionKind.RazorComment or RazorRegionKind.InlineControl &&
                 Contains(region.Span, requestedSpan))
             {
                 target = CreateTarget(

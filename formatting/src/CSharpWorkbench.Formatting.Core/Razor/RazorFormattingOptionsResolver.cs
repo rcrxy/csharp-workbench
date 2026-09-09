@@ -38,6 +38,10 @@ internal static class RazorFormattingOptionsResolver
         options.BlankLinesAroundFunctions = ParseExplicitHtmlNonNegativeInteger(
             properties,
             "html_blank_lines_around_razor_functions");
+        options.LineBreaksAroundRazorStatements = ResolveHtmlBoolean(
+            properties,
+            "html_linebreaks_around_razor_statements",
+            options.LineBreaksAroundRazorStatements);
 
         var markup = options.Markup;
         markup.SpacesAroundAttributeEquals = ResolveHtmlBoolean(

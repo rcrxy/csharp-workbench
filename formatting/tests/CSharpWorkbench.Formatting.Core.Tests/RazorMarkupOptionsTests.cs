@@ -109,4 +109,35 @@ public sealed class RazorMarkupOptionsTests
 
         Assert.Equal(expected, options.Markup.ExtraSpaces.ToString());
     }
+
+    [Fact]
+    public void RazorStatementLineBreakUsesNeutralThenResharperAlias()
+    {
+        var alias = RazorFormattingOptionsResolver.Resolve(new Dictionary<string, string>
+        {
+            ["resharper_html_linebreaks_around_razor_statements"] = "true",
+        });
+        var neutral = RazorFormattingOptionsResolver.Resolve(new Dictionary<string, string>
+        {
+            ["html_linebreaks_around_razor_statements"] = "false",
+            ["resharper_html_linebreaks_around_razor_statements"] = "true",
+        });
+
+        Assert.True(alias.LineBreaksAroundRazorStatements);
+        Assert.False(neutral.LineBreaksAroundRazorStatements);
+    }
+
+    [Theory]
+    [InlineData("yes")]
+    [InlineData("1")]
+    [InlineData("invalid")]
+    public void InvalidRazorStatementLineBreakValueUsesFalseDefault(string value)
+    {
+        var options = RazorFormattingOptionsResolver.Resolve(new Dictionary<string, string>
+        {
+            ["html_linebreaks_around_razor_statements"] = value,
+        });
+
+        Assert.False(options.LineBreaksAroundRazorStatements);
+    }
 }

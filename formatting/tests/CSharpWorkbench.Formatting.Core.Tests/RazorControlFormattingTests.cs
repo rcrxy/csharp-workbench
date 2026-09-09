@@ -92,12 +92,197 @@ public sealed class RazorControlFormattingTests
         Assert.Contains("}\n\n<span>", formatted, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AddsLineBreaksAroundInlineRazorStatementWhenEnabled()
+    {
+        const string source = "something @if(a==1) { @: SomeText } something";
+        var properties = new Dictionary<string, string>
+        {
+            ["html_linebreaks_around_razor_statements"] = "true",
+        };
+        const string expected = "something\n@if (a == 1) { @: SomeText }\nsomething";
+
+        var once = await FormatAsync(source, properties);
+        var twice = await FormatAsync(once, properties);
+
+        Assert.Equal(expected, once);
+        Assert.Equal(expected, twice);
+    }
+
+    [Fact]
+    public async Task DisabledInlineRazorStatementRuleOnlyFormatsHeader()
+    {
+        const string source = "something @if(a==1) { @:   SomeText } something";
+
+        Assert.Equal(
+            "something @if (a == 1) { @:   SomeText } something",
+            await FormatAsync(source));
+    }
+
+    [Fact]
+    public async Task InlineRazorStatementUsesScannerHeaderBoundaryWhenConditionContainsBrace()
+    {
+        const string source = "before @if(value==\"{\") { @: x } after";
+
+        Assert.Equal(
+            "before\n@if (value == \"{\") { @: x }\nafter",
+            await FormatAsync(source, new Dictionary<string, string>
+            {
+                ["html_linebreaks_around_razor_statements"] = "true",
+            }));
+    }
+
+    [Fact]
+    public async Task InlineRazorStatementUsesContainingElementIndent()
+    {
+        const string source = "<div>before @if(a) { @: x } after</div>";
+
+        Assert.Equal(
+            "<div>before\n    @if (a) { @: x }\n    after</div>",
+            await FormatAsync(source, new Dictionary<string, string>
+            {
+                ["html_linebreaks_around_razor_statements"] = "true",
+            }));
+    }
+
+    [Fact]
+    public async Task InlineRazorStatementBoundarySurvivesDirectTextChildLayoutPath()
+    {
+        const string source = "<div>before @if(a) { @: x } after<Widget /></div>";
+
+        Assert.Equal(
+            "<div>before\n    @if (a) { @: x }\n    after\n    <Widget /></div>",
+            await FormatAsync(source, new Dictionary<string, string>
+            {
+                ["html_linebreak_before_all_elements"] = "true",
+                ["html_linebreaks_around_razor_statements"] = "true",
+            }));
+    }
+
+    [Fact]
+    public async Task InlineRazorStatementRuleDoesNotEnableHtmlStructuralLineBreaks()
+    {
+        const string source = "<div>before @if(a) { @: x } after</div><span>tail</span>";
+        var properties = new Dictionary<string, string>
+        {
+            ["html_linebreak_before_all_elements"] = "false",
+            ["html_linebreak_before_multiline_elements"] = "false",
+            ["html_linebreaks_inside_tags_for_multiline_elements"] = "false",
+            ["html_linebreaks_inside_tags_for_elements_with_child_elements"] = "false",
+            ["html_linebreaks_around_razor_statements"] = "true",
+        };
+
+        Assert.Equal(
+            "<div>before\n    @if (a) { @: x }\n    after</div><span>tail</span>",
+            await FormatAsync(source, properties));
+    }
+
+    [Fact]
+    public async Task InlineRazorStatementUsesConfiguredCrlf()
+    {
+        const string source = "before @if(a) { @: x } after";
+
+        Assert.Equal(
+            "before\r\n@if (a) { @: x }\r\nafter",
+            await FormatAsync(source, new Dictionary<string, string>
+            {
+                ["end_of_line"] = "crlf",
+                ["html_linebreaks_around_razor_statements"] = "true",
+            }));
+    }
+
+    [Fact]
+    public async Task InlineRazorStatementRuleAlsoAppliesToCshtml()
+    {
+        const string source = "before @if(a) { @: x } after";
+
+        Assert.Equal(
+            "before\n@if (a) { @: x }\nafter",
+            await FormatAsync(source, new Dictionary<string, string>
+            {
+                ["html_linebreaks_around_razor_statements"] = "true",
+            }, FormattingLanguage.Cshtml));
+    }
+
+    [Fact]
+    public async Task HeaderRangeFormatsCSharpWithoutChangingStatementBoundaries()
+    {
+        const string source = "before @if(a==1) { @: x } after";
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            SpanOf(source, "a==1"),
+            new Dictionary<string, string>
+            {
+                ["html_linebreaks_around_razor_statements"] = "true",
+            });
+
+        Assert.Equal("before @if (a == 1) { @: x } after", ApplyChanges(source, result.Changes));
+    }
+
+    [Fact]
+    public async Task WholeInlineControlRangeDoesNotModifyAdjacentTextBoundaries()
+    {
+        const string source = "before @if(a==1) { @: x } after";
+        var result = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            SpanOf(source, "@if(a==1) { @: x }"),
+            new Dictionary<string, string>
+            {
+                ["html_linebreaks_around_razor_statements"] = "true",
+            });
+
+        Assert.Equal("before @if (a == 1) { @: x } after", ApplyChanges(source, result.Changes));
+    }
+
+    [Fact]
+    public async Task ContainingElementRangeAppliesInlineBoundariesIdempotently()
+    {
+        const string source = "<div>before @if(a==1) { @: x } after</div>";
+        var properties = new Dictionary<string, string>
+        {
+            ["html_linebreaks_around_razor_statements"] = "true",
+        };
+        var onceResult = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            source,
+            new FormattingTextSpan(0, source.Length),
+            properties);
+        var once = ApplyChanges(source, onceResult.Changes);
+        var twiceResult = await new FormattingEngine().FormatRangeAsync(
+            FormattingLanguage.Razor,
+            once,
+            new FormattingTextSpan(0, once.Length),
+            properties);
+
+        Assert.Equal("<div>before\n    @if (a == 1) { @: x }\n    after</div>", once);
+        Assert.Empty(twiceResult.Changes);
+    }
+
     private static async Task<string> FormatAsync(
         string source,
-        IReadOnlyDictionary<string, string>? properties = null)
+        IReadOnlyDictionary<string, string>? properties = null,
+        FormattingLanguage language = FormattingLanguage.Razor)
     {
         var result = await new FormattingEngine().FormatAsync(
-            new FormattingRequest(FormattingLanguage.Razor, source, properties));
+            new FormattingRequest(language, source, properties));
         return result.Changes.Count == 0 ? source : Assert.Single(result.Changes).NewText;
+    }
+
+    private static FormattingTextSpan SpanOf(string source, string value)
+    {
+        return new FormattingTextSpan(source.IndexOf(value, StringComparison.Ordinal), value.Length);
+    }
+
+    private static string ApplyChanges(string source, IReadOnlyList<FormattingTextChange> changes)
+    {
+        foreach (var change in changes.OrderByDescending(change => change.Span.Start))
+        {
+            source = source.Remove(change.Span.Start, change.Span.Length)
+                .Insert(change.Span.Start, change.NewText);
+        }
+
+        return source;
     }
 }

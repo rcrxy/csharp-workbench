@@ -142,6 +142,7 @@ C# 格式化使用 Roslyn 语法树与格式化服务。Workbench 的换行层�
 | `html_linebreak_before_multiline_elements`                     | `true`、`false`                                                                          | `true`           | 将多行元素放到新行。                                                |
 | `html_linebreaks_inside_tags_for_multiline_elements`           | `true`、`false`                                                                          | `true`           | 将多行元素的内容放在开始、结束标签之间的独立行。                    |
 | `html_linebreaks_inside_tags_for_elements_with_child_elements` | `true`、`false`                                                                          | `true`           | 当父元素没有直接文本时，将子元素和父闭合标签分别放到独立行。        |
+| `html_linebreaks_around_razor_statements`                      | `true`、`false`                                                                          | `false`          | 启用时确保可靠、完整且位于同一行的 Razor 内联控制语句前后存在换行；`false` 保留现有边界。 |
 | `html_no_indent_inside_elements`                               | 以逗号分隔的元素名                                                                       | `pre,textarea`   | 不修改所列元素内部的缩进。                                          |
 | `html_preserve_spaces_inside_tags`                             | 以逗号分隔的元素名                                                                       | `pre,textarea`   | 完整保留所列元素的内容。                                            |
 | `html_extra_spaces`                                            | `remove_all`、`leave_tabs`、`leave_multiple`、`leave_all`                                | `remove_all`     | `remove_all` 删除标签中的冗余水平空白；`leave_*` 保留已有额外空白。 |
@@ -179,6 +180,11 @@ html_tab_width = 4
 
 Razor 指令、标签、属性、控制块、内嵌 C# 与 range 分类共用同一个 source-preserving
 `RazorDocumentModel`；内嵌 C# 区域使用 Roslyn 格式化。
+
+`html_linebreaks_around_razor_statements` 同时支持兼容形式
+`resharper_html_linebreaks_around_razor_statements`；两者同时存在时，无前缀属性优先。当前安全范围仅包括同一行内
+完整的 `if`、`for`、`foreach`、`while`、`switch`、`using` 和 `lock` 控制语句。带 `else`、`catch`、`finally`
+的连续结构、`do`/`while` 以及跨行内联控制不会被解释为完整内联语句，而是保持不变。
 
 #### HTML 解析优先级
 
