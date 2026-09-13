@@ -191,8 +191,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --generate-notes
+          if ! gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --generate-notes
           fi
 
-          gh release upload "$GITHUB_REF_NAME" dist/*.vsix --clobber
+          gh release upload "$GITHUB_REF_NAME" dist/*.vsix \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
