@@ -2,13 +2,22 @@
     "name": "csharp-workbench",
     "displayName": "C# Workbench",
     "description": "C# and Razor development tools for VS Code, including project-aware file creation and EditorConfig-based formatting.",
-    "version": "0.1.2",
+    "version": "0.2.0",
     "publisher": "zeco",
     "author": "zeco",
     "license": "MIT",
     "icon": "assets/icon.png",
     "engines": {
         "vscode": "^1.98.0"
+    },
+    "extensionKind": [
+        "workspace"
+    ],
+    "capabilities": {
+        "virtualWorkspaces": {
+            "supported": false,
+            "description": "Formatting launches a bundled native Formatter and file creation uses the local file system and MSBuild."
+        }
     },
     "categories": [
         "Formatters",
@@ -40,12 +49,19 @@
         "clean": "node -e \"require('node:fs').rmSync('out', { recursive: true, force: true })\"",
         "compile": "npm run clean && tsc -p ./",
         "watch": "npm run clean && tsc -watch -p ./",
-        "pretest": "npm run compile && npm run lint && node --test out/test/unit/*.test.js",
+        "pretest": "npm run compile && npm run lint && node --test out/test/unit/*.test.js && npm run test:formatting && npm run test:formatter-client",
         "lint": "eslint src",
         "test": "vscode-test",
         "test:unit": "npm run compile && node --test out/test/unit/*.test.js",
-        "test:coverage": "npm run compile && node --test --experimental-test-coverage --test-coverage-include=out/features/formatting/services/csharpCodeStyleFormatter.js --test-coverage-include=out/features/formatting/services/razorTagFormatter.js --test-coverage-lines=90 --test-coverage-functions=90 out/test/unit/*.test.js",
-        "vsix": "npm run pretest && npx @vscode/vsce package",
+        "test:formatting": "dotnet test ./formatting/CSharpWorkbench.Formatting.slnx --configuration Release -m:1",
+        "test:formatter-client": "node --test out/test/integration/*.test.js",
+        "test:vscode": "npm run compile && dotnet build ./formatting/src/CSharpWorkbench.Formatter/CSharpWorkbench.Formatter.csproj --configuration Release && vscode-test",
+        "publish:formatter:win32-x64": "node scripts/publish-formatter-runtime.mjs win32-x64",
+        "publish:formatter:linux-x64": "node scripts/publish-formatter-runtime.mjs linux-x64",
+        "smoke:formatter:win32-x64": "node scripts/verify-formatter-runtime.mjs win32-x64",
+        "smoke:formatter:linux-x64": "node scripts/verify-formatter-runtime.mjs linux-x64",
+        "vsix:win32-x64": "npm run compile && npm run publish:formatter:win32-x64 && npm run smoke:formatter:win32-x64 && node scripts/package-vsix.mjs win32-x64",
+        "vsix:linux-x64": "npm run compile && npm run publish:formatter:linux-x64 && npm run smoke:formatter:linux-x64 && node scripts/package-vsix.mjs linux-x64",
         "minor": "npm version --no-git-tag-version minor",
         "patch": "npm version --no-git-tag-version patch"
     },

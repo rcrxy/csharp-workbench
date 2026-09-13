@@ -1,0 +1,26 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = false
+trim_trailing_whitespace = true
+
+[*.cs]
+indent_style = space
+indent_size = 3
+tab_width = 3
+csharp_new_line_before_open_brace = none
+csharp_preserve_single_line_statements = false
+csharp_preserve_single_line_blocks = false
+csharp_space_after_comma = false
+
+[*.{razor,cshtml}]
+indent_style = space
+indent_size = 3
+tab_width = 3
+html_attribute_style = on_single_line
+html_attribute_wrap = off
+csharp_new_line_before_open_brace = none
+csharp_preserve_single_line_statements = false
+csharp_preserve_single_line_blocks = false

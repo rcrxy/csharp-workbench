@@ -1,6 +1,10 @@
 out
 dist
+runtime/
 node_modules
+**/bin/
+**/obj/
 .vscode-test/
 *.vsix
 .editorconfig
+!src/test/vscode/workspace/.editorconfig
