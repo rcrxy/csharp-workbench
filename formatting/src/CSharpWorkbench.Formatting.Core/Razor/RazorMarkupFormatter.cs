@@ -324,6 +324,7 @@ internal sealed class RazorMarkupFormatter
                         regions,
                         index,
                         markupDepth + EffectiveControlDepth(controlDepth, csharpOptions),
+                        markupDepth == 0 && controlDepth == 0,
                         options);
                     break;
             }
@@ -956,11 +957,20 @@ internal sealed class RazorMarkupFormatter
         IReadOnlyList<RazorRegion> regions,
         int index,
         int depth,
+        bool isTopLevel,
         RazorFormattingOptions options)
     {
         var value = overlay.GetText(regions[index].Span);
         if (string.IsNullOrWhiteSpace(value))
         {
+            if (isTopLevel && index > 0 && index + 1 < regions.Count &&
+                IsWhitespaceBetweenDirectiveAndFollowingTag(regions, index))
+            {
+                var blankLines = Math.Max(0, CountLineBreaks(value) - 1);
+                builder.Append('\n', Math.Min(blankLines, 1));
+                return;
+            }
+
             if (index > 0 && index + 1 < regions.Count && IsTag(regions[index - 1]) && IsTag(regions[index + 1]))
             {
                 var blankLines = Math.Max(0, CountLineBreaks(value) - 1);
@@ -972,6 +982,14 @@ internal sealed class RazorMarkupFormatter
 
         EnsureLineStart(builder);
         builder.Append(GetIndent(depth, options)).Append(value.Trim(' ', '\t', '\r', '\n')).Append('\n');
+    }
+
+    private static bool IsWhitespaceBetweenDirectiveAndFollowingTag(
+        IReadOnlyList<RazorRegion> regions,
+        int index)
+    {
+        return regions[index - 1].Kind == RazorRegionKind.Directive &&
+            regions[index + 1].Kind is RazorRegionKind.StartTag or RazorRegionKind.SelfClosingTag;
     }
 
     private static bool IsTag(RazorRegion region)

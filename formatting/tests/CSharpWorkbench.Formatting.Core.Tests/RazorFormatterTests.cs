@@ -313,6 +313,81 @@ public sealed class RazorFormatterTests
         Assert.Equal(expected, await FormatAsync(source));
     }
 
+    [Theory]
+    [InlineData(FormattingLanguage.Razor)]
+    [InlineData(FormattingLanguage.Cshtml)]
+    public async Task PreservesSingleBlankLineBetweenTopDirectiveAndMarkup(FormattingLanguage language)
+    {
+        const string source = "@page \"/demo\"\n\n<div><span>Value</span></div>";
+        const string expected = "@page \"/demo\"\n\n<div>\n    <span>Value</span>\n</div>";
+
+        var once = await FormatAsync(source, language);
+        var twice = await FormatAsync(once, language);
+
+        Assert.Equal(expected, once);
+        Assert.Equal(expected, twice);
+    }
+
+    [Fact]
+    public async Task ReducesMultipleBlankLinesBetweenTopDirectiveAndMarkupToOne()
+    {
+        const string source = "@page \"/demo\"\n\n\n\n<MyComponent />";
+        const string expected = "@page \"/demo\"\n\n<MyComponent />";
+
+        var once = await FormatAsync(source);
+        var twice = await FormatAsync(once);
+
+        Assert.Equal(expected, once);
+        Assert.Equal(expected, twice);
+    }
+
+    [Fact]
+    public async Task DoesNotInsertMissingBlankLineBetweenTopDirectiveAndMarkup()
+    {
+        const string source = "@page \"/demo\"\n<div><span>Value</span></div>";
+        const string expected = "@page \"/demo\"\n<div>\n    <span>Value</span>\n</div>";
+
+        Assert.Equal(expected, await FormatAsync(source));
+    }
+
+    [Fact]
+    public async Task PreservesConfiguredLineEndingAtTopDirectiveBoundary()
+    {
+        const string source = "@page \"/demo\"\r\n\r\n\r\n<div><span>Value</span></div>";
+        const string expected = "@page \"/demo\"\r\n\r\n<div>\r\n    <span>Value</span>\r\n</div>";
+        var properties = new Dictionary<string, string>
+        {
+            ["end_of_line"] = "crlf",
+        };
+
+        var once = await FormatAsync(source, properties: properties);
+        var twice = await FormatAsync(once, properties: properties);
+
+        Assert.Equal(expected, once);
+        Assert.Equal(expected, twice);
+    }
+
+    [Fact]
+    public async Task DoesNotApplyTopDirectiveBoundaryRuleInsideMarkup()
+    {
+        const string source = "<div>\n@inject IService Service\n\n\n<span>Value</span>\n</div>";
+        const string expected = "<div>\n    @inject IService Service\n    <span>Value</span>\n</div>";
+
+        Assert.Equal(expected, await FormatAsync(source));
+    }
+
+    [Fact]
+    public async Task DoesNotApplyTopDirectiveBoundaryRuleInsideUnindentedControlBlock()
+    {
+        const string source = "@if (enabled)\n{\n@inject IService Service\n\n\n<span>Value</span>\n}";
+        var formatted = await FormatAsync(source, properties: new Dictionary<string, string>
+        {
+            ["csharp_indent_block_contents"] = "false",
+        });
+
+        Assert.DoesNotContain("@inject IService Service\n\n<span>Value</span>", formatted, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task IndentsMarkupInsideRazorControlAndFormatsHeader()
     {
