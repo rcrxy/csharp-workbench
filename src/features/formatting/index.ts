@@ -5,10 +5,12 @@ import {
     describeFormatterExecutable,
     resolveBundledFormatterTarget,
 } from "./client/formatterRuntime";
+import { FormattingCompletionLog } from "./formattingCompletionLog";
 import { CSharpDocumentFormattingProvider } from "./providers/csharpDocumentFormattingProvider";
 import { RazorDocumentFormattingProvider } from "./providers/razorDocumentFormattingProvider";
 
 let formatterClient: FormatterClient | undefined;
+let formattingCompletionLog: FormattingCompletionLog | undefined;
 
 export async function registerFormattingFeature(context: vscode.ExtensionContext): Promise<void> {
     const log = vscode.window.createOutputChannel("C# Workbench", { log: true });
@@ -40,9 +42,11 @@ export async function registerFormattingFeature(context: vscode.ExtensionContext
         shutdownTimeoutMs: 2_000,
     });
     formatterClient = client;
+    const completionLog = new FormattingCompletionLog(log);
+    formattingCompletionLog = completionLog;
 
-    const csharpProvider = new CSharpDocumentFormattingProvider(log, client);
-    const razorProvider = new RazorDocumentFormattingProvider(log, client);
+    const csharpProvider = new CSharpDocumentFormattingProvider(log, client, completionLog);
+    const razorProvider = new RazorDocumentFormattingProvider(log, client, completionLog);
     const csharpRangeFormattingProvider = vscode.languages.registerDocumentRangeFormattingEditProvider(
         { language: "csharp" },
         csharpProvider,
@@ -75,6 +79,9 @@ export async function registerFormattingFeature(context: vscode.ExtensionContext
 
 export async function disposeFormattingFeature(): Promise<void> {
     const client = formatterClient;
+    const completionLog = formattingCompletionLog;
     formatterClient = undefined;
+    formattingCompletionLog = undefined;
+    completionLog?.dispose();
     await client?.dispose();
 }

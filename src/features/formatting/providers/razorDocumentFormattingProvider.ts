@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { resolveRawEditorConfig } from "../../../core/editorConfig";
 import { FormatterClient } from "../client/formatterClient";
 import { FormatterClientError, FormatterRequestError, type FormatterTextSpan } from "../client/formatterProtocol";
+import { FormattingCompletionLog } from "../formattingCompletionLog";
 
 export class RazorDocumentFormattingProvider
     implements vscode.DocumentFormattingEditProvider, vscode.DocumentRangeFormattingEditProvider
@@ -9,6 +10,7 @@ export class RazorDocumentFormattingProvider
     constructor(
         private readonly log: vscode.LogOutputChannel,
         private readonly formatterClient: FormatterClient,
+        private readonly completionLog: FormattingCompletionLog,
     ) {}
 
     async provideDocumentFormattingEdits(
@@ -46,11 +48,18 @@ export class RazorDocumentFormattingProvider
                 }
 
                 const edits = mapFormatterChanges(document, result.changes, source.length);
-                this.log.info(
-                    `Razor document formatting completed via tool: ${document.uri.toString()} ` +
-                        `(changed=${edits.length > 0}, duration=${formatElapsedTime(startedAt)}, ` +
+                const durationMs = performance.now() - startedAt;
+                this.completionLog.record({
+                    language: "Razor",
+                    kind: "document",
+                    uri: document.uri.toString(),
+                    durationMs,
+                    changeCount: result.changes.length,
+                    detail:
+                        `Razor document formatting completed via tool: ${document.uri.toString()} ` +
+                        `(changed=${edits.length > 0}, duration=${durationMs.toFixed(1)} ms, ` +
                         `inputChars=${source.length}, changeCount=${result.changes.length}).`,
-                );
+                });
                 return edits;
             } finally {
                 cancellationSubscription.dispose();
@@ -108,11 +117,18 @@ export class RazorDocumentFormattingProvider
                 }
 
                 const edits = mapFormatterChanges(document, result.changes, source.length);
-                this.log.info(
-                    `Razor range formatting completed via tool: ${document.uri.toString()} ` +
-                        `(changed=${edits.length > 0}, duration=${formatElapsedTime(startedAt)}, ` +
+                const durationMs = performance.now() - startedAt;
+                this.completionLog.record({
+                    language: "Razor",
+                    kind: "range",
+                    uri: document.uri.toString(),
+                    durationMs,
+                    changeCount: result.changes.length,
+                    detail:
+                        `Razor range formatting completed via tool: ${document.uri.toString()} ` +
+                        `(changed=${edits.length > 0}, duration=${durationMs.toFixed(1)} ms, ` +
                         `range=${formatRange(range)}, inputChars=${source.length}, changeCount=${result.changes.length}).`,
-                );
+                });
                 return edits;
             } finally {
                 cancellationSubscription.dispose();
@@ -141,10 +157,6 @@ function toTextSpan(document: vscode.TextDocument, range: vscode.Range): Formatt
 
 function formatRange(range: vscode.Range): string {
     return `${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}`;
-}
-
-function formatElapsedTime(startedAt: number): string {
-    return `${(performance.now() - startedAt).toFixed(1)} ms`;
 }
 
 function createFormatterEditorFallback(
