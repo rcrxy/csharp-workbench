@@ -2,7 +2,7 @@
     "name": "csharp-workbench",
     "displayName": "C# Workbench",
     "description": "C# and Razor development tools for VS Code, including project-aware file creation and EditorConfig-based formatting.",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "publisher": "zeco",
     "author": "zeco",
     "license": "MIT",
@@ -67,16 +67,16 @@
     },
     "devDependencies": {
         "@types/mocha": "^10.0.10",
-        "@types/node": "20.x",
+        "@types/node": "^26.6.2",
         "@types/vscode": "^1.98.0",
-        "@typescript-eslint/eslint-plugin": "^8.25.0",
-        "@typescript-eslint/parser": "^8.25.0",
-        "@vscode/test-cli": "^0.0.10",
-        "@vscode/test-electron": "^2.4.1",
-        "@vscode/vsce": "^3.9.2",
+        "@typescript-eslint/eslint-plugin": "^8.70.1",
+        "@typescript-eslint/parser": "^8.70.1",
+        "@vscode/test-cli": "^0.0.15",
+        "@vscode/test-electron": "^3.1.0",
+        "@vscode/vsce": "^4.0.0",
         "eslint": "^9.21.0",
         "mocha": "^11.8.0",
-        "typescript": "^5.7.3"
+        "typescript": "^6.0.3"
     },
     "dependencies": {
         "editorconfig": "^3.0.2",
