@@ -96,6 +96,50 @@ public sealed class RazorMarkupFormatterTests
         Assert.Equal("<Widget\n    A=\"1\" B=\"2\" />", wraps);
     }
 
+    [Theory]
+    [InlineData(FormattingLanguage.Razor)]
+    [InlineData(FormattingLanguage.Cshtml)]
+    public async Task NormalWrapDefersOnDifferentLinesStyleUntilLimitIsExceeded(FormattingLanguage language)
+    {
+        const string source = "<div class=\"daily-store-data-index\"></div>";
+        var properties = new Dictionary<string, string>
+        {
+            ["html_attribute_wrap"] = "normal",
+            ["html_attribute_style"] = "on_different_lines",
+            ["html_attribute_indent"] = "double_indent",
+            ["max_line_length"] = "36",
+        };
+
+        var fits = await FormatAsync(source, properties, language, extractOpeningTag: true);
+        properties["max_line_length"] = "35";
+        var wraps = await FormatAsync(source, properties, language, extractOpeningTag: true);
+        var wrapsAgain = await FormatAsync(wraps + "</div>", properties, language, extractOpeningTag: true);
+
+        Assert.Equal("<div class=\"daily-store-data-index\">", fits);
+        Assert.Equal("<div\n        class=\"daily-store-data-index\">", wraps);
+        Assert.Equal(wraps, wrapsAgain);
+    }
+
+    [Fact]
+    public async Task NormalWrapDefersFirstAttributeStyleUntilLimitIsExceeded()
+    {
+        const string source = "<Widget A=\"1\" B=\"2\" />";
+        var properties = new Dictionary<string, string>
+        {
+            ["html_attribute_wrap"] = "normal",
+            ["html_attribute_style"] = "first_attribute_on_single_line",
+            ["html_attribute_indent"] = "double_indent",
+            ["max_line_length"] = "22",
+        };
+
+        var fits = await FormatAsync(source, properties);
+        properties["max_line_length"] = "21";
+        var wraps = await FormatAsync(source, properties);
+
+        Assert.Equal(source, fits);
+        Assert.Equal("<Widget A=\"1\"\n        B=\"2\" />", wraps);
+    }
+
     [Fact]
     public async Task NormalWrapAccountsForParentIndentationAndTabs()
     {
@@ -126,6 +170,7 @@ public sealed class RazorMarkupFormatterTests
         Assert.Equal(longTag, await FormatAsync(longTag, new Dictionary<string, string>
         {
             ["html_attribute_wrap"] = "normal",
+            ["html_attribute_style"] = "on_different_lines",
             ["max_line_length"] = "off",
         }));
     }

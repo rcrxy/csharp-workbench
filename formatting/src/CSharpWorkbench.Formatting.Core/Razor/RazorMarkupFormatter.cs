@@ -424,6 +424,9 @@ internal sealed class RazorMarkupFormatter
         var normalWrap = markup.AttributeWrap == RazorAttributeWrapPolicy.Normal &&
             options.MaxLineLength is int maxLineLength &&
             VisualLength(baseIndent + candidate, options.TabWidth) > maxLineLength;
+        if (markup.AttributeWrap == RazorAttributeWrapPolicy.Normal && !normalWrap)
+            return candidate;
+
         var multiline = markup.AttributeStyle switch
         {
             RazorAttributeStyle.OnDifferentLines => true,
