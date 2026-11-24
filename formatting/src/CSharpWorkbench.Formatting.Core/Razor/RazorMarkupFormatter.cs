@@ -72,6 +72,7 @@ internal sealed class RazorMarkupFormatter
             overlay,
             regions,
             options,
+            csharpOptions,
             preserveSourceLayout,
             startRegionIndex,
             endRegionIndex,
@@ -343,6 +344,7 @@ internal sealed class RazorMarkupFormatter
         RazorSourceOverlay overlay,
         IReadOnlyList<RazorRegion> regions,
         RazorFormattingOptions options,
+        CSharpFormattingOptions csharpOptions,
         bool preserveSourceLayout,
         int startRegionIndex,
         int endRegionIndex,
@@ -366,7 +368,7 @@ internal sealed class RazorMarkupFormatter
             {
                 var baseIndent = preserveSourceLayout
                     ? GetSourceLineIndent(source, region.Span.Start)
-                    : GetIndent(markupDepth + controlDepth, options);
+                    : GetIndent(markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options);
                 result[index] = FormatTag(source, overlay, region, baseIndent, options);
             }
 
@@ -966,15 +968,11 @@ internal sealed class RazorMarkupFormatter
         var value = overlay.GetText(regions[index].Span);
         if (string.IsNullOrWhiteSpace(value))
         {
-            if (isTopLevel && index > 0 && index + 1 < regions.Count &&
-                IsWhitespaceBetweenDirectiveAndFollowingTag(regions, index))
-            {
-                var blankLines = Math.Max(0, CountLineBreaks(value) - 1);
-                builder.Append('\n', Math.Min(blankLines, 1));
+            if (index == 0 || index + 1 >= regions.Count)
                 return;
-            }
 
-            if (index > 0 && index + 1 < regions.Count && IsTag(regions[index - 1]) && IsTag(regions[index + 1]))
+            var betweenTags = IsTag(regions[index - 1]) && IsTag(regions[index + 1]);
+            if (betweenTags || (isTopLevel && IsWhitespaceBetweenDirectiveAndFollowingTag(regions, index)))
             {
                 var blankLines = Math.Max(0, CountLineBreaks(value) - 1);
                 var kept = Math.Min(blankLines, options.Markup.MaxBlankLinesBetweenTags);

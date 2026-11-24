@@ -342,6 +342,23 @@ public sealed class RazorFormatterTests
     }
 
     [Fact]
+    public async Task AppliesConfiguredBlankLineLimitAfterTopDirective()
+    {
+        const string source = "@page \"/demo\"\n@using Demo.Models\n\n\n\n<MyComponent />";
+        var properties = new Dictionary<string, string>
+        {
+            ["html_max_blank_lines_between_tags"] = "2",
+        };
+
+        var kept = await FormatAsync(source, properties: properties);
+        Assert.Equal("@page \"/demo\"\n@using Demo.Models\n\n\n<MyComponent />", kept);
+        Assert.Equal(kept, await FormatAsync(kept, properties: properties));
+
+        properties["html_max_blank_lines_between_tags"] = "0";
+        Assert.Equal("@page \"/demo\"\n@using Demo.Models\n<MyComponent />", await FormatAsync(source, properties: properties));
+    }
+
+    [Fact]
     public async Task DoesNotInsertMissingBlankLineBetweenTopDirectiveAndMarkup()
     {
         const string source = "@page \"/demo\"\n<div><span>Value</span></div>";

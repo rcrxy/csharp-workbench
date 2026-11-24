@@ -142,7 +142,7 @@ wins.
 | `html_attribute_wrap`                                          | `off`, `normal`, `on_every_item`, `split_into_lines`                                     | `off`            | Controls length-based attribute wrapping. `normal` keeps a formatted opening tag on one line when it fits and applies `html_attribute_style` after it exceeds `max_line_length`. `on_every_item` and `split_into_lines` are parsed for compatibility but not currently applied. |
 | `ij_html_attribute_wrap`                                       | `off`, `normal`, `on_every_item`, `split_into_lines`                                     | `off`            | Compatibility alias for `html_attribute_wrap`; the standard key takes priority. The two non-applied values remain parse-only. |
 | `html_attribute_indent`                                        | `single_indent`, `double_indent`, `align_by_first_attribute`                             | `single_indent`  | Controls indentation of multiline attributes.                                                                          |
-| `html_max_blank_lines_between_tags`                            | Non-negative integer                                                                     | `1`              | Limits blank lines between adjacent tags.                                                                              |
+| `html_max_blank_lines_between_tags`                            | Non-negative integer                                                                     | `1`              | Caps existing blank lines between adjacent tags or between a top-level Razor directive and the following tag. |
 | `html_linebreak_before_all_elements`                           | `true`, `false`                                                                          | `false`          | Places every element on a new line when enabled.                                                                       |
 | `html_linebreak_before_multiline_elements`                     | `true`, `false`                                                                          | `true`           | Places multiline elements on a new line.                                                                               |
 | `html_linebreaks_inside_tags_for_multiline_elements`           | `true`, `false`                                                                          | `true`           | Places multiline element content between line breaks.                                                                  |
@@ -158,7 +158,7 @@ wins.
 `html_attribute_indent` decide how attributes are arranged and indented after that transition.
 
 With `html_attribute_wrap = normal`, the formatter first builds a normalized single-line candidate without relying on
-the original tag's line breaks. Its visual width includes the tag's existing base indentation, and tabs advance to the
+the original tag's line breaks. Its visual width includes the tag's base indentation after applying the active layout rules, and tabs advance to the
 next `tab_width` boundary. The candidate remains on one line when its width is less than or equal to
 `max_line_length`; it enters the configured multiline layout only when its width exceeds the limit.
 
