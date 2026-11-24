@@ -10,5 +10,6 @@
     "newRazorFile": "新建 Razor 文件",
     "razorComponent": "Razor 组件",
     "razorComponentFiles": "Razor 组件（代码后置和 CSS）",
-    "logging.enabled.description": "启用格式化日志并显示 C# Workbench 输出通道。"
+    "logging.enabled.description": "启用格式化日志并显示 C# Workbench 输出通道。",
+    "fileCreation.enabled.description": "启用 C# Workbench 的 C# 和 Razor 文件创建命令及资源管理器菜单。"
 }

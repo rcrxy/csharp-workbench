@@ -8,6 +8,9 @@ Configuration reference: [English](SUPPORTED_CONFIGURATIONS.md) | [简体中文]
 
 ### Project-Aware File Creation
 
+File creation is disabled by default. Set `csharpWorkbench.fileCreation.enabled` to `true` to show the Explorer
+submenu and enable the file creation commands. Changes take effect without restarting VS Code.
+
 - Create classes, interfaces, records, structs, enums, abstract classes, and static classes from the Explorer context menu.
 - Create a single Razor component or a Razor component with code-behind and scoped CSS files.
 - Resolve the nearest C# project, root namespace, target framework, and C# language capabilities.

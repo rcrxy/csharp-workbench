@@ -92,13 +92,19 @@
                     "default": false,
                     "scope": "window",
                     "description": "%logging.enabled.description%"
+                },
+                "csharpWorkbench.fileCreation.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "scope": "window",
+                    "description": "%fileCreation.enabled.description%"
                 }
             }
         },
         "menus": {
             "explorer/context": [
                 {
-                    "when": "explorerResourceIsFolder",
+                    "when": "explorerResourceIsFolder && config.csharpWorkbench.fileCreation.enabled",
                     "submenu": "csharpworkbench.newCSharpFile",
                     "group": "navigation@5"
                 }
@@ -151,39 +157,48 @@
         "commands": [
             {
                 "title": "%class%",
-                "command": "csharpworkbench.newClass"
+                "command": "csharpworkbench.newClass",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%interface%",
-                "command": "csharpworkbench.newInterface"
+                "command": "csharpworkbench.newInterface",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%record%",
-                "command": "csharpworkbench.newRecord"
+                "command": "csharpworkbench.newRecord",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%struct%",
-                "command": "csharpworkbench.newStruct"
+                "command": "csharpworkbench.newStruct",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%enum%",
-                "command": "csharpworkbench.newEnum"
+                "command": "csharpworkbench.newEnum",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%abstractClass%",
-                "command": "csharpworkbench.newAbstractClass"
+                "command": "csharpworkbench.newAbstractClass",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%staticClass%",
-                "command": "csharpworkbench.newStaticClass"
+                "command": "csharpworkbench.newStaticClass",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%razorComponent%",
-                "command": "csharpworkbench.newRazorComponent"
+                "command": "csharpworkbench.newRazorComponent",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%razorComponentFiles%",
-                "command": "csharpworkbench.newRazorComponentFiles"
+                "command": "csharpworkbench.newRazorComponentFiles",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             }
         ]
     },
