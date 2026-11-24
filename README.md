@@ -81,9 +81,10 @@ bundled remote Formatter; no path conversion or local host forwarding is involve
 Virtual Workspaces (`vscode-vfs` and similar) are not supported. Formatting launches a bundled native process, and
 file creation uses the local file system and MSBuild.
 
-The **C# Workbench** output channel logs `runtimeMode`, `hostPlatform`, `hostArch`, `runtimeTarget`, and the
-extension-relative `runtimeExecutable` on activation, followed by the Formatter version, protocol version, and
-languages once the Formatter is ready.
+Formatting logs are disabled by default. Set `csharpworkbench.logging.enabled` to `true` to start logging and
+show the **C# Workbench** output channel. The channel reports `runtimeMode`, `hostPlatform`, `hostArch`,
+`runtimeTarget`, and the extension-relative `runtimeExecutable` when enabled. It also logs the Formatter version,
+protocol version, and languages when the Formatter starts with logging enabled.
 
 ## Project Structure
 

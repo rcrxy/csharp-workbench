@@ -84,6 +84,17 @@
         "vscode-nls": "^5.2.0"
     },
     "contributes": {
+        "configuration": {
+            "title": "C# Workbench",
+            "properties": {
+                "csharpworkbench.logging.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "scope": "window",
+                    "description": "%logging.enabled.description%"
+                }
+            }
+        },
         "menus": {
             "explorer/context": [
                 {

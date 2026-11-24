@@ -2,15 +2,14 @@ import * as vscode from "vscode";
 import { resolveRawEditorConfig } from "../../../core/editorConfig";
 import { FormatterClient } from "../client/formatterClient";
 import { FormatterClientError, FormatterRequestError, type FormatterTextSpan } from "../client/formatterProtocol";
-import { FormattingCompletionLog } from "../formattingCompletionLog";
+import type { FormattingLog } from "../formattingLog";
 
 export class RazorDocumentFormattingProvider
     implements vscode.DocumentFormattingEditProvider, vscode.DocumentRangeFormattingEditProvider
 {
     constructor(
-        private readonly log: vscode.LogOutputChannel,
+        private readonly log: FormattingLog,
         private readonly formatterClient: FormatterClient,
-        private readonly completionLog: FormattingCompletionLog,
     ) {}
 
     async provideDocumentFormattingEdits(
@@ -49,7 +48,7 @@ export class RazorDocumentFormattingProvider
 
                 const edits = mapFormatterChanges(document, result.changes, source.length);
                 const durationMs = performance.now() - startedAt;
-                this.completionLog.record({
+                this.log.record({
                     language: "Razor",
                     kind: "document",
                     uri: document.uri.toString(),
@@ -118,7 +117,7 @@ export class RazorDocumentFormattingProvider
 
                 const edits = mapFormatterChanges(document, result.changes, source.length);
                 const durationMs = performance.now() - startedAt;
-                this.completionLog.record({
+                this.log.record({
                     language: "Razor",
                     kind: "range",
                     uri: document.uri.toString(),

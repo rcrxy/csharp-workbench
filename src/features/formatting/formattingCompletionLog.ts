@@ -46,15 +46,20 @@ export class FormattingCompletionLog {
         });
     }
 
-    public dispose(): void {
+    public dispose(flushPending = true): void {
         if (this.disposed) {
             return;
         }
 
         this.disposed = true;
-        for (const key of this.pending.keys()) {
-            this.flush(key);
+        for (const [key, batch] of this.pending) {
+            if (flushPending) {
+                this.flush(key);
+            } else {
+                clearTimeout(batch.timer);
+            }
         }
+        this.pending.clear();
     }
 
     private flush(key: string): void {
