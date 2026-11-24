@@ -137,7 +137,7 @@ C# 格式化使用 Roslyn 语法树与格式化服务。Workbench 的换行层�
 | `html_attribute_wrap`                                          | `off`、`normal`、`on_every_item`、`split_into_lines`                                    | `off`            | 控制是否因 `max_line_length` 触发属性换行。`normal` 在格式化后的开始标签不超长时保持单行，超长后按 `html_attribute_style` 布局。`on_every_item` 和 `split_into_lines` 目前仅解析，尚未应用。 |
 | `ij_html_attribute_wrap`                                       | `off`、`normal`、`on_every_item`、`split_into_lines`                                    | `off`            | `html_attribute_wrap` 的兼容别名；两者同时存在时标准键优先。`on_every_item` 和 `split_into_lines` 目前仅解析，尚未应用。 |
 | `html_attribute_indent`                                        | `single_indent`、`double_indent`、`align_by_first_attribute`                             | `single_indent`  | 控制多行属性的缩进。                                                |
-| `html_max_blank_lines_between_tags`                            | 非负整数                                                                                 | `1`              | 限制相邻标签之间的空白行数量。                                      |
+| `html_max_blank_lines_between_tags`                            | 非负整数                                                                                 | `1`              | 限制相邻标签之间，以及顶层 Razor 指令与后续标签之间的现有空行数。 |
 | `html_linebreak_before_all_elements`                           | `true`、`false`                                                                          | `false`          | 启用时将每个元素放到新行。                                          |
 | `html_linebreak_before_multiline_elements`                     | `true`、`false`                                                                          | `true`           | 将多行元素放到新行。                                                |
 | `html_linebreaks_inside_tags_for_multiline_elements`           | `true`、`false`                                                                          | `true`           | 将多行元素的内容放在开始、结束标签之间的独立行。                    |
@@ -153,7 +153,7 @@ C# 格式化使用 Roslyn 语法树与格式化服务。Workbench 的换行层�
 `html_attribute_indent` 分别决定属性排列方式和缩进方式。
 
 使用 `html_attribute_wrap = normal` 时，格式化器会先生成规范化的单行候选，不根据原始标签是否已经换行作出
-判断。视觉列宽包含标签当前的基础缩进，Tab 按 `tab_width` 展开到下一个制表位。单行候选宽度小于或等于
+判断。视觉列宽包含应用当前布局规则后的标签基础缩进，Tab 按 `tab_width` 展开到下一个制表位。单行候选宽度小于或等于
 `max_line_length` 时保持单行，只有超过限制时才进入配置的多行布局。
 
 多行布局语义如下：

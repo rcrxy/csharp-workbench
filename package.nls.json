@@ -9,5 +9,7 @@
     "staticClass": "Static Class",
     "newRazorFile": "New Razor File",
     "razorComponent": "Razor Component",
-    "razorComponentFiles": "Razor Component with Code-Behind and CSS"
+    "razorComponentFiles": "Razor Component with Code-Behind and CSS",
+    "logging.enabled.description": "Enable formatting logs and show the C# Workbench output channel.",
+    "fileCreation.enabled.description": "Enable C# Workbench commands and Explorer menu for creating C# and Razor files."
 }

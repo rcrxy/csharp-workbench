@@ -2,7 +2,7 @@
     "name": "csharp-workbench",
     "displayName": "C# Workbench",
     "description": "C# and Razor development tools for VS Code, including project-aware file creation and EditorConfig-based formatting.",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "publisher": "zeco",
     "author": "zeco",
     "license": "MIT",
@@ -67,16 +67,16 @@
     },
     "devDependencies": {
         "@types/mocha": "^10.0.10",
-        "@types/node": "20.x",
+        "@types/node": "^26.6.2",
         "@types/vscode": "^1.98.0",
-        "@typescript-eslint/eslint-plugin": "^8.25.0",
-        "@typescript-eslint/parser": "^8.25.0",
-        "@vscode/test-cli": "^0.0.10",
-        "@vscode/test-electron": "^2.4.1",
-        "@vscode/vsce": "^3.9.2",
+        "@typescript-eslint/eslint-plugin": "^8.70.1",
+        "@typescript-eslint/parser": "^8.70.1",
+        "@vscode/test-cli": "^0.0.15",
+        "@vscode/test-electron": "^3.1.0",
+        "@vscode/vsce": "^4.0.0",
         "eslint": "^9.21.0",
         "mocha": "^11.8.0",
-        "typescript": "^5.7.3"
+        "typescript": "^6.0.3"
     },
     "dependencies": {
         "editorconfig": "^3.0.2",
@@ -84,10 +84,27 @@
         "vscode-nls": "^5.2.0"
     },
     "contributes": {
+        "configuration": {
+            "title": "C# Workbench",
+            "properties": {
+                "csharpworkbench.logging.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "scope": "window",
+                    "description": "%logging.enabled.description%"
+                },
+                "csharpWorkbench.fileCreation.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "scope": "window",
+                    "description": "%fileCreation.enabled.description%"
+                }
+            }
+        },
         "menus": {
             "explorer/context": [
                 {
-                    "when": "explorerResourceIsFolder",
+                    "when": "explorerResourceIsFolder && config.csharpWorkbench.fileCreation.enabled",
                     "submenu": "csharpworkbench.newCSharpFile",
                     "group": "navigation@5"
                 }
@@ -140,39 +157,48 @@
         "commands": [
             {
                 "title": "%class%",
-                "command": "csharpworkbench.newClass"
+                "command": "csharpworkbench.newClass",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%interface%",
-                "command": "csharpworkbench.newInterface"
+                "command": "csharpworkbench.newInterface",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%record%",
-                "command": "csharpworkbench.newRecord"
+                "command": "csharpworkbench.newRecord",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%struct%",
-                "command": "csharpworkbench.newStruct"
+                "command": "csharpworkbench.newStruct",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%enum%",
-                "command": "csharpworkbench.newEnum"
+                "command": "csharpworkbench.newEnum",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%abstractClass%",
-                "command": "csharpworkbench.newAbstractClass"
+                "command": "csharpworkbench.newAbstractClass",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%staticClass%",
-                "command": "csharpworkbench.newStaticClass"
+                "command": "csharpworkbench.newStaticClass",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%razorComponent%",
-                "command": "csharpworkbench.newRazorComponent"
+                "command": "csharpworkbench.newRazorComponent",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             },
             {
                 "title": "%razorComponentFiles%",
-                "command": "csharpworkbench.newRazorComponentFiles"
+                "command": "csharpworkbench.newRazorComponentFiles",
+                "enablement": "config.csharpWorkbench.fileCreation.enabled"
             }
         ]
     },

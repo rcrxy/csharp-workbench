@@ -8,6 +8,9 @@ Configuration reference: [English](SUPPORTED_CONFIGURATIONS.md) | [简体中文]
 
 ### Project-Aware File Creation
 
+File creation is disabled by default. Set `csharpWorkbench.fileCreation.enabled` to `true` to show the Explorer
+submenu and enable the file creation commands. Changes take effect without restarting VS Code.
+
 - Create classes, interfaces, records, structs, enums, abstract classes, and static classes from the Explorer context menu.
 - Create a single Razor component or a Razor component with code-behind and scoped CSS files.
 - Resolve the nearest C# project, root namespace, target framework, and C# language capabilities.
@@ -81,9 +84,10 @@ bundled remote Formatter; no path conversion or local host forwarding is involve
 Virtual Workspaces (`vscode-vfs` and similar) are not supported. Formatting launches a bundled native process, and
 file creation uses the local file system and MSBuild.
 
-The **C# Workbench** output channel logs `runtimeMode`, `hostPlatform`, `hostArch`, `runtimeTarget`, and the
-extension-relative `runtimeExecutable` on activation, followed by the Formatter version, protocol version, and
-languages once the Formatter is ready.
+Formatting logs are disabled by default. Set `csharpworkbench.logging.enabled` to `true` to start logging and
+show the **C# Workbench** output channel. The channel reports `runtimeMode`, `hostPlatform`, `hostArch`,
+`runtimeTarget`, and the extension-relative `runtimeExecutable` when enabled. It also logs the Formatter version,
+protocol version, and languages when the Formatter starts with logging enabled.
 
 ## Project Structure
 

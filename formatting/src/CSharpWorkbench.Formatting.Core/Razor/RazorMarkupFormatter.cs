@@ -72,6 +72,7 @@ internal sealed class RazorMarkupFormatter
             overlay,
             regions,
             options,
+            csharpOptions,
             preserveSourceLayout,
             startRegionIndex,
             endRegionIndex,
@@ -324,6 +325,7 @@ internal sealed class RazorMarkupFormatter
                         regions,
                         index,
                         markupDepth + EffectiveControlDepth(controlDepth, csharpOptions),
+                        markupDepth == 0 && controlDepth == 0,
                         options);
                     break;
             }
@@ -342,6 +344,7 @@ internal sealed class RazorMarkupFormatter
         RazorSourceOverlay overlay,
         IReadOnlyList<RazorRegion> regions,
         RazorFormattingOptions options,
+        CSharpFormattingOptions csharpOptions,
         bool preserveSourceLayout,
         int startRegionIndex,
         int endRegionIndex,
@@ -365,7 +368,7 @@ internal sealed class RazorMarkupFormatter
             {
                 var baseIndent = preserveSourceLayout
                     ? GetSourceLineIndent(source, region.Span.Start)
-                    : GetIndent(markupDepth + controlDepth, options);
+                    : GetIndent(markupDepth + EffectiveControlDepth(controlDepth, csharpOptions), options);
                 result[index] = FormatTag(source, overlay, region, baseIndent, options);
             }
 
@@ -423,6 +426,9 @@ internal sealed class RazorMarkupFormatter
         var normalWrap = markup.AttributeWrap == RazorAttributeWrapPolicy.Normal &&
             options.MaxLineLength is int maxLineLength &&
             VisualLength(baseIndent + candidate, options.TabWidth) > maxLineLength;
+        if (markup.AttributeWrap == RazorAttributeWrapPolicy.Normal && !normalWrap)
+            return candidate;
+
         var multiline = markup.AttributeStyle switch
         {
             RazorAttributeStyle.OnDifferentLines => true,
@@ -956,12 +962,17 @@ internal sealed class RazorMarkupFormatter
         IReadOnlyList<RazorRegion> regions,
         int index,
         int depth,
+        bool isTopLevel,
         RazorFormattingOptions options)
     {
         var value = overlay.GetText(regions[index].Span);
         if (string.IsNullOrWhiteSpace(value))
         {
-            if (index > 0 && index + 1 < regions.Count && IsTag(regions[index - 1]) && IsTag(regions[index + 1]))
+            if (index == 0 || index + 1 >= regions.Count)
+                return;
+
+            var betweenTags = IsTag(regions[index - 1]) && IsTag(regions[index + 1]);
+            if (betweenTags || (isTopLevel && IsWhitespaceBetweenDirectiveAndFollowingTag(regions, index)))
             {
                 var blankLines = Math.Max(0, CountLineBreaks(value) - 1);
                 var kept = Math.Min(blankLines, options.Markup.MaxBlankLinesBetweenTags);
@@ -972,6 +983,14 @@ internal sealed class RazorMarkupFormatter
 
         EnsureLineStart(builder);
         builder.Append(GetIndent(depth, options)).Append(value.Trim(' ', '\t', '\r', '\n')).Append('\n');
+    }
+
+    private static bool IsWhitespaceBetweenDirectiveAndFollowingTag(
+        IReadOnlyList<RazorRegion> regions,
+        int index)
+    {
+        return regions[index - 1].Kind == RazorRegionKind.Directive &&
+            regions[index + 1].Kind is RazorRegionKind.StartTag or RazorRegionKind.SelfClosingTag;
     }
 
     private static bool IsTag(RazorRegion region)
