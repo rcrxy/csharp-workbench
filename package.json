@@ -2,7 +2,7 @@
     "name": "csharp-workbench",
     "displayName": "C# Workbench",
     "description": "C# and Razor development tools for VS Code, including project-aware file creation and EditorConfig-based formatting.",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "publisher": "zeco",
     "author": "zeco",
     "license": "MIT",

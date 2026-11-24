@@ -1,4 +1,4 @@
-import { existsSync, rmSync, statSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import process from "node:process";
 import { spawnSync } from "node:child_process";
@@ -38,6 +38,7 @@ const projectPath = resolve(
 );
 const outputPath = resolve("runtime", target);
 const executablePath = resolve(outputPath, configuration.executable);
+const packageManifest = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
 
 rmSync(outputPath, { recursive: true, force: true });
 
@@ -55,6 +56,7 @@ const publish = spawnSync(
         "true",
         "--output",
         outputPath,
+        `-p:Version=${packageManifest.version}`,
         "-p:DebugType=None",
     ],
     { stdio: "inherit" },
